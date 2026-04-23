@@ -1,4 +1,5 @@
 import json
+import os
 
 rules = []
 
@@ -197,7 +198,8 @@ for rule in rules:
     output.append(f"**Spawns**: {json.dumps(rule['spawns'])}")
     output.append("")
 
-with open("/Users/shree/Desktop/meta-round22/constrained-refactor-env/environment/ENGINEERING_STANDARDS.md", "w") as f:
+output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "environment", "ENGINEERING_STANDARDS.md")
+with open(output_path, "w") as f:
     f.write("\n".join(output))
 
 print("DONE")

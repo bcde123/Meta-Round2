@@ -139,11 +139,11 @@ class RuleEngine:
             if match_ratio >= 0.3:
                 return True
         
-        # Default: editing a file resolves ~40% of generic rules
-        # This provides a reasonable signal without being too generous
+        # Default: editing a file resolves generic rules deterministically
+        # Use a hash of the diff + rule ID for consistency (same input → same result)
         if "edited" in diff_lower:
-            import random
-            return random.random() < 0.4
+            hash_val = hash((diff, rule.id)) % 10
+            return hash_val < 4  # ~40% resolution rate, but deterministic
             
         return False
 
