@@ -106,6 +106,10 @@ def create_training_dataset(num_episodes=50):
         code_context = ""
         for fname, content in ep["files"].items():
             code_context += f"\n--- {fname} ---\n```python\n{content}\n```\n"
+        
+        # Truncate code context to ~2000 chars (~512 tokens) to prevent OOM during generation
+        if len(code_context) > 2000:
+            code_context = code_context[:2000] + "\n... (truncated)\n"
             
         system_prompt = (
             "You are an expert Python refactoring agent. Your task is to clean up the provided codebase, "
@@ -176,7 +180,6 @@ def main():
         num_generations=2,           # Minimum for GRPO (need >1 for relative ranking)
         generation_batch_size=2,     # Must be a multiple of num_generations! (Cannot be 1 if num_generations is 2)
         max_completion_length=512,   # Reduced to 512 to fit T4 15GB VRAM
-        max_prompt_length=512,       # Cap prompt length to prevent OOM on long code contexts
         save_steps=100,
         logging_steps=10,
         bf16=is_bf16_supported,      # Auto-detect bf16 support
