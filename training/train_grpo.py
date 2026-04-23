@@ -283,12 +283,12 @@ def main():
         bnb_4bit_use_double_quant=True
     )
 
-    # Fix #4: Revert to torch_dtype (the deprecation warning is from model internals, not from_pretrained)
+    # Fix #4: transformers 5.0+ uses `dtype` (renamed from `torch_dtype`)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         device_map="auto",
         quantization_config=quant_config,
-        torch_dtype=compute_dtype,
+        dtype=compute_dtype,
         attn_implementation="sdpa",
     )
     
