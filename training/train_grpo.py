@@ -184,7 +184,7 @@ def main():
         logging_steps=10,
         bf16=is_bf16_supported,      # Auto-detect bf16 support
         fp16=not is_bf16_supported,  # Fallback to fp16 for older GPUs (e.g., Colab T4)
-        report_to="wandb" if os.getenv("WANDB_API_KEY") else "none"
+        report_to="none"  # Set to "wandb" if you have a WANDB_API_KEY configured
     )
     
     # Generate actual training dataset with real episodes
