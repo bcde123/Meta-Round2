@@ -125,10 +125,16 @@ def compute_code_quality_fast(orig_files: dict, updated_files: dict) -> float:
     return total
 
 def reward_function(completions, prompts, files, rules_active, **kwargs):
+    """Compute rewards for GRPO training.
+    
+    Uses fast AST-based code quality scoring (no subprocess calls)
+    and a graduated format reward to bootstrap learning.
+    """
     t0 = time.time()
     rewards = []
     files_batch = [json.loads(f) for f in files]
     rules_batch = [json.loads(r) for r in rules_active]
+    
     for idx, (completion, orig_files, active_rules) in enumerate(zip(completions, files_batch, rules_batch)):
         try:
             completion_text = extract_completion_text(completion)
@@ -156,6 +162,7 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
         except Exception as e:
             print(f"Reward calculation error: {e}")
             rewards.append(-0.1)
+
     elapsed = time.time() - t0
     avg_r = sum(rewards) / len(rewards) if rewards else 0
     print(f"  [Reward] {len(rewards)} completions scored in {elapsed:.1f}s | avg={avg_r:.3f}")
@@ -198,10 +205,18 @@ def main():
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output"))
     os.makedirs(output_dir, exist_ok=True)
     training_args = GRPOConfig(
-        output_dir=output_dir, learning_rate=1e-5, per_device_train_batch_size=2,
-        gradient_accumulation_steps=4, max_steps=100, num_generations=4,
-        generation_batch_size=4, max_completion_length=512, save_steps=25,
-        logging_steps=5, bf16=True, report_to="none"
+        output_dir=output_dir,
+        learning_rate=1e-5,
+        per_device_train_batch_size=2,    # H100 can handle batch_size=2
+        gradient_accumulation_steps=4,    # Effective batch = 2*4 = 8
+        max_steps=100,                    # More training steps for real learning
+        num_generations=4,                # 4 completions per prompt = better GRPO signal
+        generation_batch_size=4,          # Generate all 4 at once (H100 has headroom)
+        max_completion_length=512,        # Balanced: fast iterations while producing useful output
+        save_steps=25,                    # Save checkpoint every 25 steps
+        logging_steps=5,                  # Log more frequently
+        bf16=True,                        # H100 has native bf16
+        report_to="none"
     )
     train_dataset = create_training_dataset(num_episodes=200)
     trainer = GRPOTrainer(model=model, reward_funcs=reward_function, args=training_args, train_dataset=train_dataset, processing_class=tokenizer)
