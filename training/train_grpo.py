@@ -4,9 +4,9 @@ import json
 import wandb
 import torch
 import datasets
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from trl import GRPOConfig, GRPOTrainer
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -133,12 +133,26 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         
+    # Colab GPU support: detect architecture to set dtype and use 4-bit quantization
+    is_bf16_supported = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    compute_dtype = torch.bfloat16 if is_bf16_supported else torch.float16
+    
+    quant_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=compute_dtype,
+        bnb_4bit_use_double_quant=True
+    )
+
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        quantization_config=quant_config,
+        torch_dtype=compute_dtype,
         attn_implementation="sdpa",
     )
+    
+    model = prepare_model_for_kbit_training(model)
     
     lora_config = LoraConfig(
         r=16,
@@ -159,12 +173,13 @@ def main():
         gradient_accumulation_steps=4,
         max_steps=500,
         num_generations=4,           # Reduced from 8 to fit in memory with longer outputs
-        generation_batch_size=4,     # Match num_generations
+        generation_batch_size=2,     # Reduced for Colab GPU memory constraints
         max_prompt_length=2048,      # Allow full codebase prompts
         max_completion_length=2048,  # Allow full file generation with XML tags
         save_steps=100,
         logging_steps=10,
-        bf16=True,
+        bf16=is_bf16_supported,      # Auto-detect bf16 support
+        fp16=not is_bf16_supported,  # Fallback to fp16 for older GPUs (e.g., Colab T4)
         report_to="wandb" if os.getenv("WANDB_API_KEY") else "none"
     )
     

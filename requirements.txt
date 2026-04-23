@@ -12,3 +12,6 @@ trl>=0.8.6
 wandb>=0.17.0
 torch>=2.2.0
 peft>=0.10.0
+datasets
+accelerate
+bitsandbytes
