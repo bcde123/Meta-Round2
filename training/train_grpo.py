@@ -7,6 +7,10 @@ import random
 import ast
 import torch
 import datasets
+try:
+    import wandb  # TRL 1.2.0 references wandb internally during checkpoint saves
+except ImportError:
+    wandb = None
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import GRPOConfig, GRPOTrainer
 from peft import LoraConfig, get_peft_model
