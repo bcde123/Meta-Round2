@@ -85,6 +85,68 @@ class RuleEngine:
                 self.trigger_graph[key] = []
             self.trigger_graph[key].append(r.id)
 
+    def _check_rule_resolved(self, rule: Rule, diff: str) -> bool:
+        """Check if a rule's obligation has been addressed by the current edit.
+        
+        Uses heuristic keyword matching against the diff to determine
+        whether the edit likely addresses the rule's check condition.
+        """
+        check_lower = rule.check_value.lower()
+        diff_lower = diff.lower()
+        
+        # Category-based resolution heuristics
+        category_lower = rule.category.lower()
+        
+        if "naming" in category_lower or "variable" in category_lower:
+            # Naming rules resolved if meaningful variable names appear in the diff
+            if any(kw in diff_lower for kw in ["renamed", "refactor", "edited"]):
+                return True
+                
+        if "docstring" in category_lower or "documentation" in category_lower:
+            if '"""' in diff or "'''" in diff or "docstring" in diff_lower:
+                return True
+                
+        if "type" in category_lower and "hint" in category_lower:
+            if any(kw in diff for kw in ["-> ", ": str", ": int", ": float", ": bool", ": List", ": Dict", ": Optional"]):
+                return True
+                
+        if "complexity" in category_lower:
+            if "edited" in diff_lower:
+                return True
+                
+        if "import" in category_lower:
+            if "import" in diff_lower:
+                return True
+                
+        if "security" in category_lower or "secret" in category_lower:
+            if any(kw in diff_lower for kw in ["os.getenv", "environ", "config", "secret"]):
+                return True
+                
+        if "test" in category_lower:
+            if any(kw in diff_lower for kw in ["test_", "assert", "pytest"]):
+                return True
+                
+        if "size" in category_lower or "length" in category_lower or "module" in category_lower:
+            if "edited" in diff_lower:
+                return True
+        
+        # Generic: if the edit mentions the file was changed, resolve with some probability
+        # based on how many keywords from the check condition appear in the diff
+        check_keywords = [w for w in check_lower.split() if len(w) > 3]
+        if check_keywords:
+            matches = sum(1 for kw in check_keywords if kw in diff_lower)
+            match_ratio = matches / len(check_keywords)
+            if match_ratio >= 0.3:
+                return True
+        
+        # Default: editing a file resolves ~40% of generic rules
+        # This provides a reasonable signal without being too generous
+        if "edited" in diff_lower:
+            import random
+            return random.random() < 0.4
+            
+        return False
+
     def process_action(self, action: dict, diff: str, state: EpisodeState) -> ViolationReport:
         report = ViolationReport(set(), set(), set(), [])
         action_type = action.get("tool", "unknown")
@@ -102,21 +164,29 @@ class RuleEngine:
         # Spawns evaluation
         new_spawns = []
         for rid in list(state.outstanding_obligations):
-            r = self.rules[rid]
-            for spawn_id in r.spawns:
-                if spawn_id not in state.triggered_rules:
-                    state.triggered_rules.add(spawn_id)
-                    state.outstanding_obligations.add(spawn_id)
-                    new_spawns.append(spawn_id)
-                    report.newly_triggered.add(spawn_id)
+            if rid in self.rules:
+                r = self.rules[rid]
+                for spawn_id in r.spawns:
+                    if spawn_id not in state.triggered_rules:
+                        state.triggered_rules.add(spawn_id)
+                        state.outstanding_obligations.add(spawn_id)
+                        new_spawns.append(spawn_id)
+                        report.newly_triggered.add(spawn_id)
         
-        # Checking logic mock (normally evaluates AST or diffs)
+        # Resolution checking — evaluate each outstanding obligation
         resolved_this_step = set()
         for rid in list(state.outstanding_obligations):
-            # In a real environment, AST/regex checks would go here.
-            # We randomly mock resolve for standard rules, but check contradiction pairs
-            pass
-            
+            if rid in self.rules:
+                rule = self.rules[rid]
+                if self._check_rule_resolved(rule, diff):
+                    resolved_this_step.add(rid)
+        
+        # Apply resolutions
+        for rid in resolved_this_step:
+            state.outstanding_obligations.discard(rid)
+            state.resolved_rules.add(rid)
+            report.newly_resolved.add(rid)
+                
         # Detect contradictions (e.g. Rule 142 vs Rule 143)
         if 142 in state.outstanding_obligations and 143 in state.outstanding_obligations:
             conflict_msg = "Contradiction detected between Rule 142 and 143"

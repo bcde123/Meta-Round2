@@ -123,8 +123,9 @@ class EpisodeGenerator:
 
     def _hardcode_secrets(self, files: Dict[str, str]):
         for filename, content in files.items():
-            files[filename] = content.replace('os.getenv("API_KEY", "default_secret_key")', '"password123"')
-            files[filename] = content.replace('os.getenv("DB_URL", "sqlite:///./tasks.db")', '"root:supersecret@localhost:5432/db"')
+            modified = content.replace('os.getenv("API_KEY", "default_secret_key")', '"password123"')
+            modified = modified.replace('os.getenv("DB_URL", "sqlite:///./tasks.db")', '"root:supersecret@localhost:5432/db"')
+            files[filename] = modified
 
     def _break_import_paths(self, files: Dict[str, str]):
         for filename, content in files.items():
