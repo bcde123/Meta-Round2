@@ -299,8 +299,11 @@ def main():
     model.gradient_checkpointing_enable()
     model.print_trainable_parameters()
 
+    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output"))
+    os.makedirs(output_dir, exist_ok=True)
+
     training_args = GRPOConfig(
-        output_dir="./grpo_output",
+        output_dir=output_dir,
         learning_rate=1e-5,
         per_device_train_batch_size=2,    # H100 can handle batch_size=2
         gradient_accumulation_steps=4,    # Effective batch = 2*4 = 8
@@ -330,8 +333,9 @@ def main():
     trainer.train()
     
     # Save the final adapter
-    trainer.save_model("./grpo_output/final_adapter")
-    print("✅ Training complete! Adapter saved to ./grpo_output/final_adapter")
+    final_path = os.path.join(output_dir, "final_adapter")
+    trainer.save_model(final_path)
+    print(f"✅ Training complete! Adapter saved to {final_path}")
 
 if __name__ == "__main__":
     main()
