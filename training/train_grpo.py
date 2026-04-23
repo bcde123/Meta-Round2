@@ -1,4 +1,5 @@
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import re
 import json
 import wandb
@@ -174,7 +175,7 @@ def main():
         max_steps=25,
         num_generations=2,           # Reduced to 2 to prevent OutOfMemory on Colab T4
         generation_batch_size=2,     # Must be a multiple of num_generations in TRL
-        max_completion_length=2048,  # Allow full file generation with XML tags
+        max_completion_length=1024,  # Reduced from 2048 to save memory on Colab T4
         save_steps=100,
         logging_steps=10,
         bf16=is_bf16_supported,      # Auto-detect bf16 support
