@@ -156,9 +156,9 @@ def main():
     model = prepare_model_for_kbit_training(model)
     
     lora_config = LoraConfig(
-        r=16,
+        r=8,
         lora_alpha=16,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
         lora_dropout=0.0,
         bias="none",
         task_type="CAUSAL_LM"
@@ -173,9 +173,9 @@ def main():
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         max_steps=25,
-        num_generations=2,           # Reduced to 2 to prevent OutOfMemory on Colab T4
-        generation_batch_size=2,     # Must be a multiple of num_generations in TRL
-        max_completion_length=1024,  # Reduced from 2048 to save memory on Colab T4
+        num_generations=2,           # Minimum for GRPO (need >1 for relative ranking)
+        generation_batch_size=2,     # Must be a multiple of num_generations! (Cannot be 1 if num_generations is 2)
+        max_completion_length=512,   # Reduced to 512 to fit T4 15GB VRAM
         save_steps=100,
         logging_steps=10,
         bf16=is_bf16_supported,      # Auto-detect bf16 support
@@ -184,7 +184,7 @@ def main():
     )
     
     # Generate actual training dataset with real episodes
-    train_dataset = create_training_dataset(num_episodes=100)
+    train_dataset = create_training_dataset(num_episodes=50)
 
     trainer = GRPOTrainer(
         model=model,
@@ -195,6 +195,7 @@ def main():
     )
     
     print("Starting GRPO Training...")
+    torch.cuda.empty_cache()  # Free any leftover GPU memory before training
     trainer.train()
 
 if __name__ == "__main__":
