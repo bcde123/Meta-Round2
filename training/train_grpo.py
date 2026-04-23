@@ -7,18 +7,18 @@ import random
 import ast
 import torch
 import datasets
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import GRPOConfig, GRPOTrainer
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, get_peft_model
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from environment.episode_generator import EpisodeGenerator
 from environment.track_b import ComplianceChecker
 
-MODEL_NAME = "Qwen/Qwen2.5-Coder-3B-Instruct"
-BASE_DIR = os.path.join(os.path.dirname(__file__), "../environment/base_codebase")
-STANDARDS_PATH = os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md")
+MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
+STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md"))
 
 def parse_completions(completion_text):
     """Parse the LLM's output to extract edited files."""
@@ -241,7 +241,7 @@ def create_training_dataset(num_episodes=50):
         code_context = ""
         for fname, content in ep["files"].items():
             file_block = f"\n--- {fname} ---\n```python\n{content}\n```\n"
-            if len(code_context) + len(file_block) > 2000:
+            if len(code_context) + len(file_block) > 8000:
                 break  # stop adding files instead of cutting mid-code
             code_context += file_block
             
@@ -272,58 +272,46 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         
-    # Colab GPU support: detect architecture to set dtype and use 4-bit quantization
-    is_bf16_supported = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    compute_dtype = torch.bfloat16 if is_bf16_supported else torch.float16
-    
-    quant_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_use_double_quant=True
-    )
-
-    # Fix #4: transformers 5.0+ uses `dtype` (renamed from `torch_dtype`)
+    # ---- H100 80GB: Native bf16, no quantization needed ----
+    # 7B model in bf16 = ~14GB, leaving ~65GB for activations, generations, optimizer
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         device_map="auto",
-        quantization_config=quant_config,
-        dtype=compute_dtype,
-        attn_implementation="sdpa",
+        dtype=torch.bfloat16,
+        attn_implementation="flash_attention_2",  # H100 has native FlashAttention support
     )
     
-    model = prepare_model_for_kbit_training(model)
-    
     lora_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-        lora_dropout=0.0,
+        r=32,                        # Higher rank = more capacity for learning
+        lora_alpha=64,               # 2x rank is a good default
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],  # All linear layers
+        lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM"
     )
     
     model = get_peft_model(model, lora_config)
     model.gradient_checkpointing_enable()
+    model.print_trainable_parameters()
 
     training_args = GRPOConfig(
         output_dir="./grpo_output",
-        learning_rate=5e-6,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
-        max_steps=25,
-        num_generations=2,           # Minimum for GRPO (need >1 for relative ranking)
-        generation_batch_size=2,     # Must be a multiple of num_generations
-        max_completion_length=512,   # Reduced to 512 to fit T4 15GB VRAM
-        save_steps=100,
-        logging_steps=10,
-        bf16=is_bf16_supported,      # Auto-detect bf16 support
-        fp16=not is_bf16_supported,  # Fallback to fp16 for older GPUs (e.g., Colab T4)
-        report_to="none"  # Set to "wandb" if you have a WANDB_API_KEY configured
+        learning_rate=1e-5,
+        per_device_train_batch_size=2,    # H100 can handle batch_size=2
+        gradient_accumulation_steps=4,    # Effective batch = 2*4 = 8
+        max_steps=100,                    # More training steps for real learning
+        num_generations=4,                # 4 completions per prompt = better GRPO signal
+        generation_batch_size=4,          # Generate all 4 at once (H100 has headroom)
+        max_completion_length=1024,       # Full-length completions for complete file output
+        save_steps=25,                    # Save checkpoint every 25 steps
+        logging_steps=5,                  # Log more frequently
+        bf16=True,                        # H100 has native bf16
+        report_to="none"
     )
     
-    # Generate actual training dataset with real episodes
-    train_dataset = create_training_dataset(num_episodes=50)
+    # Generate training dataset — more episodes for better coverage
+    train_dataset = create_training_dataset(num_episodes=200)
 
     trainer = GRPOTrainer(
         model=model,
@@ -334,8 +322,12 @@ def main():
     )
     
     print("Starting GRPO Training...")
-    torch.cuda.empty_cache()  # Free any leftover GPU memory before training
+    torch.cuda.empty_cache()
     trainer.train()
+    
+    # Save the final adapter
+    trainer.save_model("./grpo_output/final_adapter")
+    print("✅ Training complete! Adapter saved to ./grpo_output/final_adapter")
 
 if __name__ == "__main__":
     main()
