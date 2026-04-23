@@ -278,7 +278,7 @@ def main():
         MODEL_NAME,
         device_map="auto",
         dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",  # H100 has native FlashAttention support
+        attn_implementation="sdpa",  # Built into PyTorch, no extra install needed
     )
     
     lora_config = LoraConfig(
