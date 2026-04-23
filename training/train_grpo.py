@@ -15,7 +15,7 @@ from environment.episode_generator import EpisodeGenerator
 from environment.track_a import CodeQualityEvaluator
 from environment.track_b import ComplianceChecker
 
-MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-Coder-3B-Instruct"
 BASE_DIR = os.path.join(os.path.dirname(__file__), "../environment/base_codebase")
 STANDARDS_PATH = os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md")
 
@@ -149,7 +149,7 @@ def main():
         MODEL_NAME,
         device_map="auto",
         quantization_config=quant_config,
-        torch_dtype=compute_dtype,
+        dtype=compute_dtype,
         attn_implementation="sdpa",
     )
     
@@ -176,6 +176,7 @@ def main():
         num_generations=2,           # Minimum for GRPO (need >1 for relative ranking)
         generation_batch_size=2,     # Must be a multiple of num_generations! (Cannot be 1 if num_generations is 2)
         max_completion_length=512,   # Reduced to 512 to fit T4 15GB VRAM
+        max_prompt_length=512,       # Cap prompt length to prevent OOM on long code contexts
         save_steps=100,
         logging_steps=10,
         bf16=is_bf16_supported,      # Auto-detect bf16 support
