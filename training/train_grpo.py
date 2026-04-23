@@ -172,8 +172,8 @@ def main():
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         max_steps=25,
-        num_generations=4,           # Reduced from 8 to fit in memory with longer outputs
-        generation_batch_size=4,     # Must be a multiple of num_generations in TRL
+        num_generations=2,           # Reduced to 2 to prevent OutOfMemory on Colab T4
+        generation_batch_size=2,     # Must be a multiple of num_generations in TRL
         max_completion_length=2048,  # Allow full file generation with XML tags
         save_steps=100,
         logging_steps=10,
