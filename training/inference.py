@@ -10,10 +10,12 @@ print("="*60)
 print("🔍 Loading Base Model and Tokenizer...")
 print("="*60)
 
+# 1. Load Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
+# 2. Load Base Model in BF16
 base_model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     device_map="auto",
@@ -21,6 +23,7 @@ base_model = AutoModelForCausalLM.from_pretrained(
     attn_implementation="sdpa"
 )
 
+# 3. Attach the trained LoRA Adapter
 print(f"🔗 Attaching trained adapter from: {ADAPTER_PATH}")
 if not os.path.exists(ADAPTER_PATH):
     print(f"❌ Error: Adapter not found at {ADAPTER_PATH}")
@@ -32,6 +35,9 @@ model.eval()
 
 print("✅ Model ready for inference!\n")
 
+# ==========================================
+# TEST CASE: Messy code that violates rules
+# ==========================================
 messy_code = """
 def calculate(x, y):
     # This function lacks type hints, docstrings, and uses bad variable names
@@ -53,6 +59,7 @@ system_prompt = (
 
 user_prompt = f"Here is the codebase to refactor:\n\n--- messy.py ---\n```python\n{messy_code}\n```\n\nPlease refactor and return the updated files."
 
+# Format the prompt using the model's chat template
 messages = [
     {"role": "system", "content": system_prompt},
     {"role": "user", "content": user_prompt}
@@ -69,7 +76,7 @@ with torch.no_grad():
         **inputs,
         max_new_tokens=512,
         do_sample=True,
-        temperature=0.3, 
+        temperature=0.3, # Low temperature for more deterministic, structured coding
         pad_token_id=tokenizer.pad_token_id
     )
 
