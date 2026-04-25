@@ -181,25 +181,70 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
         try:
             completion_text = extract_completion_text(completion)
             edits = parse_completions(completion_text)
+
+            # ── Format reward: graduated, fine-grained ────────────────────────
             format_reward = 0.0
-            if "<file" in completion_text: format_reward += 0.05
-            if '</file>' in completion_text: format_reward += 0.05
-            if edits: format_reward += 0.1 * min(len(edits), 4) / 4.0
+            if "<file" in completion_text: format_reward += 0.02
+            if '</file>' in completion_text: format_reward += 0.02
+            if edits:
+                # Reward scales with how many original files were edited (0-4)
+                valid_edits = {k: v for k, v in edits.items() if k in orig_files}
+                format_reward += 0.06 * min(len(valid_edits), 4) / 4.0
+            
             if not edits:
                 rewards.append(-0.1 + format_reward)
                 continue
+
+            # ── Apply edits to codebase ────────────────────────────────────────
             updated_files = orig_files.copy()
+            parse_successes = 0
+            parse_total = 0
             for fname, content in edits.items():
                 if fname in updated_files:
                     updated_files[fname] = content
+                    parse_total += 1
+                    try:
+                        ast.parse(content)
+                        parse_successes += 1
+                    except SyntaxError:
+                        pass
+
+            # ── Parsability bonus: key differentiator between completions ──────
+            if parse_total > 0:
+                parse_score = parse_successes / parse_total  # 0.0 to 1.0
+            else:
+                parse_score = 0.0
+
+            # ── Code quality (Track A) ────────────────────────────────────────
             score_a = compute_code_quality_fast(orig_files, updated_files)
+
+            # ── Compliance (Track B) ──────────────────────────────────────────
             evaluator_b = ComplianceChecker(STANDARDS_PATH)
             evaluator_b.reset(orig_files, active_rules)
             for fname in edits.keys():
                 action = {"tool": "edit_file", "args": {"filename": fname}}
                 evaluator_b.step(action, f"Edited {fname}")
             score_b = evaluator_b.get_score()
-            reward = 0.6 * score_a + 0.4 * score_b + format_reward
+
+            # ── Code delta bonus: reward for actually changing the code ────────
+            total_orig_len = sum(len(c) for c in orig_files.values())
+            total_new_len = sum(len(c) for c in updated_files.values())
+            # Small bonus if code got shorter (refactoring), penalty if bloated
+            if total_orig_len > 0:
+                delta_ratio = (total_orig_len - total_new_len) / total_orig_len
+                delta_bonus = max(-0.05, min(0.05, delta_ratio * 0.1))
+            else:
+                delta_bonus = 0.0
+
+            # ── Final reward: weighted combination ────────────────────────────
+            # Weights: quality=0.3, compliance=0.25, parsability=0.25, format=0.1, delta=0.1
+            reward = (
+                0.30 * score_a +
+                0.25 * score_b +
+                0.25 * parse_score +
+                format_reward +
+                delta_bonus
+            )
             rewards.append(reward)
         except Exception as e:
             print(f"Reward calculation error: {e}")
@@ -270,11 +315,12 @@ def main():
         output_dir=output_dir,
         learning_rate=5e-6,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=2,  # Reduced from 4 to fit 8 generations
         max_steps=100,
-        num_generations=4,
+        num_generations=8,              # 8 generations → more reward variance
         max_completion_length=512,
         max_prompt_length=MAX_SEQ_LENGTH - 512,
+        temperature=1.0,                # Higher temperature → diverse completions
         save_steps=25,
         logging_steps=5,
         bf16=USE_BF16,
