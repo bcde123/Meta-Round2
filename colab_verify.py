@@ -119,25 +119,18 @@ MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 LORA_RANK = 32
 MAX_SEQ_LENGTH = 4096
 
-# Auto-detect GPU capabilities
+# Auto-detect GPU capabilities (vLLM disabled due to v0.19.1 BitsAndBytes bug)
 cc = torch.cuda.get_device_capability(0)
-FAST_INFERENCE = cc[0] >= 8
+FAST_INFERENCE = False  # vLLM v0.19.1 crashes with BitsAndBytes
 USE_BF16 = cc[0] >= 8
-print(f"  GPU compute {cc[0]}.{cc[1]} → vLLM {'ON' if FAST_INFERENCE else 'OFF'}, {'bf16' if USE_BF16 else 'fp16'}")
+print(f"  {torch.cuda.get_device_name(0)} (compute {cc[0]}.{cc[1]}) → {'bf16' if USE_BF16 else 'fp16'}, vLLM OFF")
 
 t0 = time.time()
-from_pretrained_kwargs = dict(
+model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=MODEL_NAME,
     max_seq_length=MAX_SEQ_LENGTH,
     load_in_4bit=True,
 )
-if FAST_INFERENCE:
-    from_pretrained_kwargs.update(
-        fast_inference=True,
-        max_lora_rank=LORA_RANK,
-        gpu_memory_utilization=0.6,
-    )
-model, tokenizer = FastLanguageModel.from_pretrained(**from_pretrained_kwargs)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -202,8 +195,6 @@ grpo_kwargs = dict(
     fp16=not USE_BF16,
     report_to="none",
 )
-if FAST_INFERENCE:
-    grpo_kwargs["use_vllm"] = True
 training_args = GRPOConfig(**grpo_kwargs)
 
 trainer = GRPOTrainer(

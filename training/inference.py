@@ -10,20 +10,14 @@ print("=" * 60)
 print("🔍 Loading Model via Unsloth FastLanguageModel...")
 print("=" * 60)
 
-# Auto-detect: vLLM needs compute capability >= 8.0
-cc = torch.cuda.get_device_capability(0)
-use_vllm = cc[0] >= 8
-print(f"  GPU compute capability {cc[0]}.{cc[1]} → vLLM {'enabled' if use_vllm else 'disabled'}")
+# vLLM disabled: v0.19.1 has BitsAndBytes graph compilation bug on all GPUs
+print(f"  {torch.cuda.get_device_name(0)} — vLLM OFF (v0.19.1 bug)")
 
-from_pretrained_kwargs = dict(
+model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=ADAPTER_PATH,
     max_seq_length=MAX_SEQ_LENGTH,
     load_in_4bit=True,
 )
-if use_vllm:
-    from_pretrained_kwargs["fast_inference"] = True
-
-model, tokenizer = FastLanguageModel.from_pretrained(**from_pretrained_kwargs)
 FastLanguageModel.for_inference(model)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token

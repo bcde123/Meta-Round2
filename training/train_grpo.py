@@ -41,21 +41,24 @@ LOAD_IN_4BIT = True         # QLoRA – 4-bit quantization for ~60% VRAM reducti
 GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
 
 # Auto-detect GPU capabilities:
-#   - vLLM requires compute capability >= 8.0 (T4=7.5 crashes)
 #   - bf16 requires Ampere+ (compute >= 8.0); T4 must use fp16
+#   - vLLM is DISABLED: v0.19.1 has a graph compilation bug with BitsAndBytes
+#     ("Tried to erase Node size_3") that crashes on ALL GPUs (T4, A100, H100).
+#     Unsloth's training speedups still work; only generation rollouts fall back
+#     to HuggingFace generate() which is slightly slower but reliable.
 def _detect_gpu_caps():
-    fast_inference = False
+    fast_inference = False  # vLLM disabled due to v0.19.1 bug
     use_bf16 = False
     try:
         import torch
         if torch.cuda.is_available():
             cc = torch.cuda.get_device_capability(0)
-            if cc[0] >= 8:  # A100, L4, H100, etc.
-                fast_inference = True
+            gpu_name = torch.cuda.get_device_name(0)
+            if cc[0] >= 8:
                 use_bf16 = True
-                print(f"  GPU compute {cc[0]}.{cc[1]} >= 8.0 → vLLM ON, bf16 ON")
+                print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → bf16 ON, vLLM OFF (v0.19.1 bug)")
             else:
-                print(f"  GPU compute {cc[0]}.{cc[1]} < 8.0 (T4/V100) → vLLM OFF, fp16 ON")
+                print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → fp16 ON, vLLM OFF")
     except Exception:
         pass
     return fast_inference, use_bf16
@@ -237,19 +240,12 @@ def main():
         print("❌ GPU required for training. Run this on Colab or a machine with NVIDIA/AMD GPU.")
         return
     # ── 1. Load model via Unsloth (replaces manual transformers + peft setup) ──
-    print(f"Loading model via Unsloth FastLanguageModel (vLLM={'ON' if FAST_INFERENCE else 'OFF'})...")
-    from_pretrained_kwargs = dict(
+    print("Loading model via Unsloth FastLanguageModel...")
+    model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=MODEL_NAME,
         max_seq_length=MAX_SEQ_LENGTH,
         load_in_4bit=LOAD_IN_4BIT,
     )
-    if FAST_INFERENCE:
-        from_pretrained_kwargs.update(
-            fast_inference=True,
-            max_lora_rank=LORA_RANK,
-            gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
-        )
-    model, tokenizer = FastLanguageModel.from_pretrained(**from_pretrained_kwargs)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -285,8 +281,6 @@ def main():
         fp16=not USE_BF16,
         report_to="none",
     )
-    if FAST_INFERENCE:
-        grpo_kwargs["use_vllm"] = True
     training_args = GRPOConfig(**grpo_kwargs)
 
     # ── 4. Train ───────────────────────────────────────────────────────────────
