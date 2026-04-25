@@ -1,47 +1,30 @@
 import os
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import PeftModel
+from unsloth import FastLanguageModel
 
 MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 ADAPTER_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output/final_adapter"))
+MAX_SEQ_LENGTH = 4096
 
-print("="*60)
-print("🔍 Loading Base Model and Tokenizer...")
-print("="*60)
+print("=" * 60)
+print("🔍 Loading Model via Unsloth FastLanguageModel...")
+print("=" * 60)
 
-# 1. Load Tokenizer
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name=ADAPTER_PATH,
+    max_seq_length=MAX_SEQ_LENGTH,
+    load_in_4bit=True,
+    fast_inference=True,
+)
+FastLanguageModel.for_inference(model)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
-# 2. Load Base Model in BF16
-base_model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    device_map="auto",
-    dtype=torch.bfloat16,
-    attn_implementation="sdpa"
-)
-
-# 3. Attach the trained LoRA Adapter
-print(f"🔗 Attaching trained adapter from: {ADAPTER_PATH}")
-if not os.path.exists(ADAPTER_PATH):
-    print(f"❌ Error: Adapter not found at {ADAPTER_PATH}")
-    print("Are you sure the training finished completely?")
-    exit(1)
-
-model = PeftModel.from_pretrained(base_model, ADAPTER_PATH)
-model.eval()
-
 print("✅ Model ready for inference!\n")
 
-# ==========================================
-# TEST CASE: Messy code that violates rules
-# ==========================================
 messy_code = """
 def calculate(x, y):
-    # This function lacks type hints, docstrings, and uses bad variable names
-    import os # bad import location
+    import os
     a = x + y
     if a > 10:
         return a
@@ -59,7 +42,6 @@ system_prompt = (
 
 user_prompt = f"Here is the codebase to refactor:\n\n--- messy.py ---\n```python\n{messy_code}\n```\n\nPlease refactor and return the updated files."
 
-# Format the prompt using the model's chat template
 messages = [
     {"role": "system", "content": system_prompt},
     {"role": "user", "content": user_prompt}
@@ -67,16 +49,16 @@ messages = [
 text_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 inputs = tokenizer(text_prompt, return_tensors="pt").to(model.device)
 
-print("="*60)
+print("=" * 60)
 print("🤖 Generating Refactored Code...")
-print("="*60)
+print("=" * 60)
 
 with torch.no_grad():
     outputs = model.generate(
         **inputs,
         max_new_tokens=512,
         do_sample=True,
-        temperature=0.3, # Low temperature for more deterministic, structured coding
+        temperature=0.3,
         pad_token_id=tokenizer.pad_token_id
     )
 

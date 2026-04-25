@@ -3,7 +3,7 @@ verify_pipeline.py — Quick verification that the entire GRPO pipeline works.
 
 Run this BEFORE the full training to confirm:
   1. GPU is accessible
-  2. Model loads correctly
+  2. Model loads correctly (via Unsloth)
   3. Episodes generate properly
   4. Reward function scores correctly
   5. Model can generate text
@@ -89,7 +89,7 @@ bad_rewards = reward_function(
 )
 print(f"  Reward for bad format: {bad_rewards[0]:.3f} (expected: ~-0.1)")
 
-# Test 3b: Partial format (has <file> but broken)
+# Test 3b: Partial format
 print("\n  --- Test 3b: Partial format ---")
 partial_completion = '<file name="api.py">def hello():\n    """Say hello."""\n    print("hi")\n</file>'
 partial_rewards = reward_function(
@@ -100,9 +100,8 @@ partial_rewards = reward_function(
 )
 print(f"  Reward for partial: {partial_rewards[0]:.3f} (expected: >0.0)")
 
-# Test 3c: Good completion (proper XML with real file content)
+# Test 3c: Good completion
 print("\n  --- Test 3c: Good completion (proper refactoring) ---")
-# Take a real file and add docstrings + type hints
 sample_fname = list(ep['files'].keys())[0]
 sample_code = ep['files'][sample_fname]
 improved_code = '"""Module docstring."""\n' + sample_code
@@ -126,37 +125,42 @@ print(f"  Compliance score: {score_b:.3f}")
 print(f"  Outstanding rules: {len(checker.get_outstanding())}")
 
 # ============================================================
-# TEST 4: Model Loading + Generation
+# TEST 4: Model Loading + Generation (Unsloth)
 # ============================================================
 print("\n" + "=" * 60)
-print("TEST 4: Model Loading + Text Generation")
+print("TEST 4: Model Loading + Text Generation (Unsloth)")
 print("=" * 60)
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import LoraConfig, get_peft_model
+from unsloth import FastLanguageModel, PatchFastRL
+PatchFastRL("GRPO", FastLanguageModel)
 
 MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
+LORA_RANK = 32
+MAX_SEQ_LENGTH = 4096
 
 t0 = time.time()
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name=MODEL_NAME,
+    max_seq_length=MAX_SEQ_LENGTH,
+    load_in_4bit=True,
+    fast_inference=True,
+    max_lora_rank=LORA_RANK,
+    gpu_memory_utilization=0.6,
+)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    device_map="auto",
-    dtype=torch.bfloat16,
-    attn_implementation="sdpa",
-)
-
-lora_config = LoraConfig(
-    r=32, lora_alpha=64,
+model = FastLanguageModel.get_peft_model(
+    model,
+    r=LORA_RANK,
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                    "gate_proj", "up_proj", "down_proj"],
-    lora_dropout=0.05, bias="none", task_type="CAUSAL_LM"
+                     "gate_proj", "up_proj", "down_proj"],
+    lora_alpha=LORA_RANK * 2,
+    lora_dropout=0,
+    bias="none",
+    use_gradient_checkpointing="unsloth",
+    random_state=3407,
 )
-model = get_peft_model(model, lora_config)
-model.gradient_checkpointing_enable()
 load_time = time.time() - t0
 print(f"  ✅ Model loaded in {load_time:.1f}s")
 model.print_trainable_parameters()
@@ -181,17 +185,15 @@ print(f"  Generated {len(outputs[0]) - inputs['input_ids'].shape[1]} tokens in {
 print(f"  Output preview: {generated[:200]}...")
 
 # ============================================================
-# TEST 5: Quick 2-step GRPO Training
+# TEST 5: Quick 2-step GRPO Training (Unsloth)
 # ============================================================
 print("\n" + "=" * 60)
-print("TEST 5: Quick 2-step GRPO Training")
+print("TEST 5: Quick 2-step GRPO Training (Unsloth)")
 print("=" * 60)
 
-import datasets as ds
 from trl import GRPOConfig, GRPOTrainer
 from training.train_grpo import create_training_dataset
 
-# Create a tiny dataset (10 episodes)
 print("  Generating 10 episodes...")
 train_dataset = create_training_dataset(num_episodes=10)
 print(f"  ✅ Dataset: {len(train_dataset)} episodes")
@@ -201,17 +203,18 @@ os.makedirs(output_dir, exist_ok=True)
 
 training_args = GRPOConfig(
     output_dir=output_dir,
-    learning_rate=1e-5,
-    per_device_train_batch_size=1,     # Tiny batch for fast verification
+    learning_rate=5e-6,
+    per_device_train_batch_size=1,
     gradient_accumulation_steps=1,
-    max_steps=2,                        # Just 2 steps to verify
-    num_generations=2,                  # Minimal generations
-    generation_batch_size=2,
-    max_completion_length=128,          # Very short for speed
-    save_steps=999,                     # Don't save during verify
-    logging_steps=1,                    # Log every step
+    max_steps=2,
+    num_generations=2,
+    max_completion_length=128,
+    max_prompt_length=MAX_SEQ_LENGTH - 128,
+    save_steps=999,
+    logging_steps=1,
     bf16=True,
-    report_to="none"
+    use_vllm=True,
+    report_to="none",
 )
 
 trainer = GRPOTrainer(
@@ -230,7 +233,6 @@ train_time = time.time() - t0
 
 print(f"\n  ✅ 2 steps completed in {train_time:.1f}s ({train_time/2:.1f}s per step)")
 
-# Check GPU memory usage
 mem_used = torch.cuda.max_memory_allocated() / 1024**3
 mem_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
 print(f"  ✅ Peak GPU memory: {mem_used:.1f} / {mem_total:.1f} GB ({mem_used/mem_total*100:.0f}%)")
@@ -239,12 +241,12 @@ print(f"  ✅ Peak GPU memory: {mem_used:.1f} / {mem_total:.1f} GB ({mem_used/me
 # FINAL SUMMARY
 # ============================================================
 print("\n" + "=" * 60)
-print("✅ ALL TESTS PASSED — Pipeline is verified!")
+print("✅ ALL TESTS PASSED — Pipeline is verified (Unsloth)!")
 print("=" * 60)
 print(f"""
 Summary:
   GPU:              {gpu_name} ({vram:.0f}GB)
-  Model:            {MODEL_NAME}
+  Model:            {MODEL_NAME} (via Unsloth)
   Load time:        {load_time:.0f}s
   Gen speed:        ~{gen_time:.1f}s for 128 tokens
   Training speed:   ~{train_time/2:.0f}s per step

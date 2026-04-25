@@ -12,9 +12,13 @@ try:
     import wandb
 except ImportError:
     wandb = None
-from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# ── Unsloth integration ──────────────────────────────────────────────────────
+from unsloth import FastLanguageModel, PatchFastRL
+PatchFastRL("GRPO", FastLanguageModel)          # patch TRL's GRPOTrainer for 2x speed
 from trl import GRPOConfig, GRPOTrainer
-from peft import LoraConfig, get_peft_model
+# ─────────────────────────────────────────────────────────────────────────────
+
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -24,6 +28,15 @@ from environment.track_b import ComplianceChecker
 MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
 STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md"))
+
+# ── Unsloth hyperparameters ───────────────────────────────────────────────────
+MAX_SEQ_LENGTH = 4096       # Context window for training + generation
+LORA_RANK = 32              # LoRA rank (8, 16, 32, 64, 128)
+LOAD_IN_4BIT = True         # QLoRA – 4-bit quantization for ~60% VRAM reduction
+FAST_INFERENCE = True       # Use vLLM backend for generation rollouts
+GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 def parse_completions(completion_text):
     pattern = r'<file name="(.*?)">(.*?)</file>'
@@ -194,37 +207,69 @@ def create_training_dataset(num_episodes=50):
     return datasets.Dataset.from_dict(dataset_dict)
 
 def main():
-    print("Loading tokenizer and model...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto", dtype=torch.bfloat16, attn_implementation="sdpa")
-    lora_config = LoraConfig(r=32, lora_alpha=64, target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"], lora_dropout=0.05, bias="none", task_type="CAUSAL_LM")
-    model = get_peft_model(model, lora_config)
-    model.gradient_checkpointing_enable()
+    # ── 1. Load model via Unsloth (replaces manual transformers + peft setup) ──
+    print("Loading model via Unsloth FastLanguageModel...")
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=MODEL_NAME,
+        max_seq_length=MAX_SEQ_LENGTH,
+        load_in_4bit=LOAD_IN_4BIT,
+        fast_inference=FAST_INFERENCE,
+        max_lora_rank=LORA_RANK,
+        gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
+    )
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # ── 2. Add LoRA adapters via Unsloth (optimised kernels + memory savings) ──
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r=LORA_RANK,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                         "gate_proj", "up_proj", "down_proj"],
+        lora_alpha=LORA_RANK * 2,
+        lora_dropout=0,          # Unsloth recommends 0 – optimised for it
+        bias="none",
+        use_gradient_checkpointing="unsloth",  # Unsloth's long-context checkpointing
+        random_state=3407,
+    )
     model.print_trainable_parameters()
+
+    # ── 3. Training config ─────────────────────────────────────────────────────
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output"))
     os.makedirs(output_dir, exist_ok=True)
     training_args = GRPOConfig(
         output_dir=output_dir,
-        learning_rate=1e-5,
-        per_device_train_batch_size=2,    # H100 can handle batch_size=2
-        gradient_accumulation_steps=4,    # Effective batch = 2*4 = 8
-        max_steps=100,                    # More training steps for real learning
-        num_generations=4,                # 4 completions per prompt = better GRPO signal
-        generation_batch_size=4,          # Generate all 4 at once (H100 has headroom)
-        max_completion_length=512,        # Balanced: fast iterations while producing useful output
-        save_steps=25,                    # Save checkpoint every 25 steps
-        logging_steps=5,                  # Log more frequently
-        bf16=True,                        # H100 has native bf16
-        report_to="none"
+        learning_rate=5e-6,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=4,
+        max_steps=100,
+        num_generations=4,
+        max_completion_length=512,
+        max_prompt_length=MAX_SEQ_LENGTH - 512,
+        save_steps=25,
+        logging_steps=5,
+        bf16=True,
+        use_vllm=FAST_INFERENCE,       # vLLM-backed generation in GRPO rollouts
+        report_to="none",
     )
+
+    # ── 4. Train ───────────────────────────────────────────────────────────────
     train_dataset = create_training_dataset(num_episodes=200)
-    trainer = GRPOTrainer(model=model, reward_funcs=reward_function, args=training_args, train_dataset=train_dataset, processing_class=tokenizer)
-    print("Starting GRPO Training...")
+    trainer = GRPOTrainer(
+        model=model,
+        reward_funcs=reward_function,
+        args=training_args,
+        train_dataset=train_dataset,
+        processing_class=tokenizer,
+    )
+    print("Starting GRPO Training (Unsloth + vLLM)...")
     torch.cuda.empty_cache()
     trainer.train()
+
+    # ── 5. Save adapter ───────────────────────────────────────────────────────
     final_path = os.path.join(output_dir, "final_adapter")
-    trainer.save_model(final_path)
+    model.save_pretrained(final_path)
+    tokenizer.save_pretrained(final_path)
     print(f"✅ Training complete! Adapter saved to {final_path}")
 
 if __name__ == "__main__":

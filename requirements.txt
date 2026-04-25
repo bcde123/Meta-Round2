@@ -15,3 +15,6 @@ peft>=0.10.0
 datasets
 accelerate
 bitsandbytes
+unsloth
+vllm
+triton
