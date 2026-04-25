@@ -195,31 +195,34 @@ print(f"  Generated {len(outputs[0]) - inputs['input_ids'].shape[1]} tokens in {
 print(f"  Output preview: {generated[:200]}...")
 
 # ============================================================
-# TEST 5: Quick 2-step GRPO Training (Unsloth)
+# TEST 5: 5-step GRPO Training (Unsloth) — meaningful signal
 # ============================================================
 print("\n" + "=" * 60)
-print("TEST 5: Quick 2-step GRPO Training (Unsloth)")
+print("TEST 5: 5-step GRPO Training (Unsloth)")
 print("=" * 60)
 
 from trl import GRPOConfig, GRPOTrainer
 from training.train_grpo import create_training_dataset
 
-print("  Generating 10 episodes...")
-train_dataset = create_training_dataset(num_episodes=10)
+print("  Generating 20 episodes...")
+train_dataset = create_training_dataset(num_episodes=20)
 print(f"  ✅ Dataset: {len(train_dataset)} episodes")
 
 output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output_verify"))
 os.makedirs(output_dir, exist_ok=True)
 
+# 4 generations per prompt → reward variance → actual gradient signal
+# 5 steps → enough to see if loss moves
+# 256 completion tokens → model can produce full <file>...</file> XML blocks
 grpo_kwargs = dict(
     output_dir=output_dir,
     learning_rate=5e-6,
     per_device_train_batch_size=1,
     gradient_accumulation_steps=1,
-    max_steps=2,
-    num_generations=2,
-    max_completion_length=128,
-    max_prompt_length=MAX_SEQ_LENGTH - 128,
+    max_steps=5,
+    num_generations=4,
+    max_completion_length=256,
+    max_prompt_length=MAX_SEQ_LENGTH - 256,
     save_steps=999,
     logging_steps=1,
     bf16=USE_BF16,
@@ -238,13 +241,14 @@ trainer = GRPOTrainer(
     processing_class=tokenizer,
 )
 
-print("  Starting 2-step training (this may take 2-5 minutes)...")
+print("  Starting 5-step training (this may take 3-8 minutes)...")
 t0 = time.time()
 torch.cuda.empty_cache()
 trainer.train()
 train_time = time.time() - t0
 
-print(f"\n  ✅ 2 steps completed in {train_time:.1f}s ({train_time/2:.1f}s per step)")
+num_steps = 5
+print(f"\n  ✅ {num_steps} steps completed in {train_time:.1f}s ({train_time/num_steps:.1f}s per step)")
 
 mem_used = torch.cuda.max_memory_allocated() / 1024**3
 mem_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
@@ -262,10 +266,10 @@ Summary:
   Model:            {MODEL_NAME} (via Unsloth)
   Load time:        {load_time:.0f}s
   Gen speed:        ~{gen_time:.1f}s for 128 tokens
-  Training speed:   ~{train_time/2:.0f}s per step
+  Training speed:   ~{train_time/num_steps:.0f}s per step
   Peak memory:      {mem_used:.1f}/{mem_total:.1f}GB
   
-Estimated full run (100 steps): ~{train_time/2 * 100 / 60:.0f} minutes
+Estimated full run (100 steps): ~{train_time/num_steps * 100 / 60:.0f} minutes
 
 To start the full training run:
   python training/train_grpo.py
