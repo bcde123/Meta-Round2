@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import os
@@ -8,7 +9,20 @@ from environment.episode_generator import EpisodeGenerator
 from environment.track_a import CodeQualityEvaluator
 from environment.track_b import ComplianceChecker
 
-app = FastAPI()
+app = FastAPI(
+    title="Constrained Refactor Gauntlet",
+    description="OpenEnv RL environment for multi-file code refactoring with 150 cascading rules",
+    version="1.0.0",
+)
+
+# CORS for HuggingFace Spaces / external access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ResetRequest(BaseModel):
     curriculum_level: Optional[int] = None
@@ -140,4 +154,25 @@ async def step_env(req: ActionRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "environment": "constrained-refactor-gauntlet",
+        "endpoints": ["/reset", "/step", "/infer", "/health"],
+    }
+
+
+class InferRequest(BaseModel):
+    observation: Dict[str, Any]
+
+
+@app.post("/infer")
+async def infer(req: InferRequest):
+    """Run the trained agent on an observation and return the next action."""
+    try:
+        from inference import run_inference
+
+        action = run_inference(req.observation)
+        return {"action": action}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Inference error: {e}")
