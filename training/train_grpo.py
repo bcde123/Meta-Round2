@@ -38,8 +38,26 @@ STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../env
 MAX_SEQ_LENGTH = 4096       # Context window for training + generation
 LORA_RANK = 32              # LoRA rank (8, 16, 32, 64, 128)
 LOAD_IN_4BIT = True         # QLoRA – 4-bit quantization for ~60% VRAM reduction
-FAST_INFERENCE = True       # Use vLLM backend for generation rollouts
 GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
+
+# Auto-detect: vLLM requires compute capability >= 8.0 for BitsAndBytes models
+# T4 (7.5) will crash with vLLM graph compilation, so we disable it automatically
+def _detect_fast_inference():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cc = torch.cuda.get_device_capability(0)
+            if cc[0] >= 8:  # A100, L4, H100, etc.
+                print(f"  GPU compute capability {cc[0]}.{cc[1]} >= 8.0 → vLLM enabled")
+                return True
+            else:
+                print(f"  GPU compute capability {cc[0]}.{cc[1]} < 8.0 (T4/V100) → vLLM disabled")
+                return False
+    except Exception:
+        pass
+    return False
+
+FAST_INFERENCE = _detect_fast_inference()
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -216,15 +234,19 @@ def main():
         print("❌ GPU required for training. Run this on Colab or a machine with NVIDIA/AMD GPU.")
         return
     # ── 1. Load model via Unsloth (replaces manual transformers + peft setup) ──
-    print("Loading model via Unsloth FastLanguageModel...")
-    model, tokenizer = FastLanguageModel.from_pretrained(
+    print(f"Loading model via Unsloth FastLanguageModel (vLLM={'ON' if FAST_INFERENCE else 'OFF'})...")
+    from_pretrained_kwargs = dict(
         model_name=MODEL_NAME,
         max_seq_length=MAX_SEQ_LENGTH,
         load_in_4bit=LOAD_IN_4BIT,
-        fast_inference=FAST_INFERENCE,
-        max_lora_rank=LORA_RANK,
-        gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
     )
+    if FAST_INFERENCE:
+        from_pretrained_kwargs.update(
+            fast_inference=True,
+            max_lora_rank=LORA_RANK,
+            gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
+        )
+    model, tokenizer = FastLanguageModel.from_pretrained(**from_pretrained_kwargs)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 

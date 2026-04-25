@@ -138,15 +138,24 @@ MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 LORA_RANK = 32
 MAX_SEQ_LENGTH = 4096
 
+# Auto-detect: vLLM needs compute capability >= 8.0 (T4=7.5 will crash)
+cc = torch.cuda.get_device_capability(0)
+FAST_INFERENCE = cc[0] >= 8
+print(f"  GPU compute capability {cc[0]}.{cc[1]} → vLLM {'enabled' if FAST_INFERENCE else 'disabled'}")
+
 t0 = time.time()
-model, tokenizer = FastLanguageModel.from_pretrained(
+from_pretrained_kwargs = dict(
     model_name=MODEL_NAME,
     max_seq_length=MAX_SEQ_LENGTH,
     load_in_4bit=True,
-    fast_inference=True,
-    max_lora_rank=LORA_RANK,
-    gpu_memory_utilization=0.6,
 )
+if FAST_INFERENCE:
+    from_pretrained_kwargs.update(
+        fast_inference=True,
+        max_lora_rank=LORA_RANK,
+        gpu_memory_utilization=0.6,
+    )
+model, tokenizer = FastLanguageModel.from_pretrained(**from_pretrained_kwargs)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -213,7 +222,7 @@ training_args = GRPOConfig(
     save_steps=999,
     logging_steps=1,
     bf16=True,
-    use_vllm=True,
+    use_vllm=FAST_INFERENCE,
     report_to="none",
 )
 
