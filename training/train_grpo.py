@@ -40,24 +40,27 @@ LORA_RANK = 32              # LoRA rank (8, 16, 32, 64, 128)
 LOAD_IN_4BIT = True         # QLoRA – 4-bit quantization for ~60% VRAM reduction
 GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
 
-# Auto-detect: vLLM requires compute capability >= 8.0 for BitsAndBytes models
-# T4 (7.5) will crash with vLLM graph compilation, so we disable it automatically
-def _detect_fast_inference():
+# Auto-detect GPU capabilities:
+#   - vLLM requires compute capability >= 8.0 (T4=7.5 crashes)
+#   - bf16 requires Ampere+ (compute >= 8.0); T4 must use fp16
+def _detect_gpu_caps():
+    fast_inference = False
+    use_bf16 = False
     try:
         import torch
         if torch.cuda.is_available():
             cc = torch.cuda.get_device_capability(0)
             if cc[0] >= 8:  # A100, L4, H100, etc.
-                print(f"  GPU compute capability {cc[0]}.{cc[1]} >= 8.0 → vLLM enabled")
-                return True
+                fast_inference = True
+                use_bf16 = True
+                print(f"  GPU compute {cc[0]}.{cc[1]} >= 8.0 → vLLM ON, bf16 ON")
             else:
-                print(f"  GPU compute capability {cc[0]}.{cc[1]} < 8.0 (T4/V100) → vLLM disabled")
-                return False
+                print(f"  GPU compute {cc[0]}.{cc[1]} < 8.0 (T4/V100) → vLLM OFF, fp16 ON")
     except Exception:
         pass
-    return False
+    return fast_inference, use_bf16
 
-FAST_INFERENCE = _detect_fast_inference()
+FAST_INFERENCE, USE_BF16 = _detect_gpu_caps()
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -267,7 +270,7 @@ def main():
     # ── 3. Training config ─────────────────────────────────────────────────────
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output"))
     os.makedirs(output_dir, exist_ok=True)
-    training_args = GRPOConfig(
+    grpo_kwargs = dict(
         output_dir=output_dir,
         learning_rate=5e-6,
         per_device_train_batch_size=1,
@@ -278,10 +281,13 @@ def main():
         max_prompt_length=MAX_SEQ_LENGTH - 512,
         save_steps=25,
         logging_steps=5,
-        bf16=True,
-        use_vllm=FAST_INFERENCE,       # vLLM-backed generation in GRPO rollouts
+        bf16=USE_BF16,
+        fp16=not USE_BF16,
         report_to="none",
     )
+    if FAST_INFERENCE:
+        grpo_kwargs["use_vllm"] = True
+    training_args = GRPOConfig(**grpo_kwargs)
 
     # ── 4. Train ───────────────────────────────────────────────────────────────
     train_dataset = create_training_dataset(num_episodes=200)

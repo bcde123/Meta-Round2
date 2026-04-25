@@ -138,10 +138,11 @@ MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 LORA_RANK = 32
 MAX_SEQ_LENGTH = 4096
 
-# Auto-detect: vLLM needs compute capability >= 8.0 (T4=7.5 will crash)
+# Auto-detect GPU capabilities
 cc = torch.cuda.get_device_capability(0)
 FAST_INFERENCE = cc[0] >= 8
-print(f"  GPU compute capability {cc[0]}.{cc[1]} → vLLM {'enabled' if FAST_INFERENCE else 'disabled'}")
+USE_BF16 = cc[0] >= 8
+print(f"  GPU compute {cc[0]}.{cc[1]} → vLLM {'ON' if FAST_INFERENCE else 'OFF'}, {'bf16' if USE_BF16 else 'fp16'}")
 
 t0 = time.time()
 from_pretrained_kwargs = dict(
@@ -210,7 +211,7 @@ print(f"  ✅ Dataset: {len(train_dataset)} episodes")
 output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output_verify"))
 os.makedirs(output_dir, exist_ok=True)
 
-training_args = GRPOConfig(
+grpo_kwargs = dict(
     output_dir=output_dir,
     learning_rate=5e-6,
     per_device_train_batch_size=1,
@@ -221,10 +222,13 @@ training_args = GRPOConfig(
     max_prompt_length=MAX_SEQ_LENGTH - 128,
     save_steps=999,
     logging_steps=1,
-    bf16=True,
-    use_vllm=FAST_INFERENCE,
+    bf16=USE_BF16,
+    fp16=not USE_BF16,
     report_to="none",
 )
+if FAST_INFERENCE:
+    grpo_kwargs["use_vllm"] = True
+training_args = GRPOConfig(**grpo_kwargs)
 
 trainer = GRPOTrainer(
     model=model,
