@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import os
 import uuid
+import torch
 
 from environment.episode_generator import EpisodeGenerator
 from environment.track_a import CodeQualityEvaluator
@@ -152,12 +154,40 @@ async def step_env(req: ActionRequest):
         "info": info
     }
 
+@app.get("/")
+def root():
+    """Project info page."""
+    gpu_available = torch.cuda.is_available()
+    return {
+        "project": "Constrained Refactor Gauntlet",
+        "description": "OpenEnv RL environment: refactor a Python codebase while obeying 150 cascading engineering rules",
+        "hackathon": "Meta PyTorch OpenEnv Hackathon",
+        "reward_formula": "CodeScore × ComplianceScore",
+        "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "training_method": "GRPO (Group Relative Policy Optimization) via Unsloth",
+        "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter",
+        "gpu_available": gpu_available,
+        "inference_available": gpu_available,
+        "endpoints": {
+            "GET /": "This page — project info",
+            "GET /health": "Health check",
+            "GET /docs": "Interactive API documentation (Swagger UI)",
+            "POST /reset": "Start a new episode",
+            "POST /step": "Take an action in the environment",
+            "POST /infer": "Run trained agent on an observation (requires GPU)",
+        },
+    }
+
+
 @app.get("/health")
 def health():
+    gpu_available = torch.cuda.is_available()
     return {
         "status": "ok",
         "version": "1.0.0",
         "environment": "constrained-refactor-gauntlet",
+        "gpu_available": gpu_available,
+        "inference_ready": gpu_available,
         "endpoints": ["/reset", "/step", "/infer", "/health"],
     }
 
@@ -168,7 +198,26 @@ class InferRequest(BaseModel):
 
 @app.post("/infer")
 async def infer(req: InferRequest):
-    """Run the trained agent on an observation and return the next action."""
+    """Run the trained agent on an observation and return the next action.
+    
+    Requires GPU. On CPU-only Spaces, returns an error with instructions
+    to run inference on the Lightning Studio instead.
+    """
+    if not torch.cuda.is_available():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "GPU required for inference",
+                "detail": "This Space runs on CPU. The 7B model requires GPU for inference.",
+                "alternatives": {
+                    "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter",
+                    "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+                    "instructions": "Load the adapter with peft and run inference on a GPU machine.",
+                },
+                "environment_endpoints_work": True,
+                "try_these": ["POST /reset", "POST /step", "GET /health"],
+            },
+        )
     try:
         from inference import run_inference
 

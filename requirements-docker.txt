@@ -1,5 +1,6 @@
 # Runtime-only dependencies for the Docker environment server.
-# Training deps (unsloth, vllm, triton, bitsandbytes) are NOT needed at inference.
+# Training deps (unsloth, vllm, triton, bitsandbytes) are NOT needed here.
+# torch CPU-only is used for the environment; inference needs GPU separately.
 fastapi>=0.110.0
 uvicorn>=0.29.0
 openai>=1.23.0
@@ -8,7 +9,8 @@ tqdm>=4.66.0
 python-dotenv>=1.0.0
 ruff>=0.4.0
 astor>=0.8.1
-torch>=2.2.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
 transformers>=4.40.0
 peft>=0.10.0
 datasets
@@ -16,3 +18,4 @@ accelerate
 huggingface_hub>=0.34.0
 hf_transfer
 sentencepiece>=0.2.0
+
