@@ -6,17 +6,22 @@ import re
 import json
 import random
 import ast
-import torch
 import datasets
 try:
     import wandb
 except ImportError:
     wandb = None
 
-# ── Unsloth integration ──────────────────────────────────────────────────────
-from unsloth import FastLanguageModel, PatchFastRL
-PatchFastRL("GRPO", FastLanguageModel)          # patch TRL's GRPOTrainer for 2x speed
-from trl import GRPOConfig, GRPOTrainer
+# ── Unsloth + GPU imports (deferred for CPU-only testing) ─────────────────────
+try:
+    import torch
+    from unsloth import FastLanguageModel, PatchFastRL
+    PatchFastRL("GRPO", FastLanguageModel)          # patch TRL's GRPOTrainer for 2x speed
+    from trl import GRPOConfig, GRPOTrainer
+    HAS_GPU = True
+except (ImportError, NotImplementedError):
+    HAS_GPU = False
+# ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 
 import sys
@@ -207,6 +212,9 @@ def create_training_dataset(num_episodes=50):
     return datasets.Dataset.from_dict(dataset_dict)
 
 def main():
+    if not HAS_GPU:
+        print("❌ GPU required for training. Run this on Colab or a machine with NVIDIA/AMD GPU.")
+        return
     # ── 1. Load model via Unsloth (replaces manual transformers + peft setup) ──
     print("Loading model via Unsloth FastLanguageModel...")
     model, tokenizer = FastLanguageModel.from_pretrained(
