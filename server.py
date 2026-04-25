@@ -164,7 +164,7 @@ def root():
         "project": "Constrained Refactor Gauntlet",
         "description": "OpenEnv RL environment: refactor a Python codebase while obeying 150 cascading engineering rules",
         "hackathon": "Meta PyTorch OpenEnv Hackathon",
-        "reward_formula": "CodeScore × ComplianceScore",
+        "reward_formula": "0.50×CodeScore + 0.35×ComplianceScore + 0.15×GreenScore",
         "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
         "training_method": "GRPO (Group Relative Policy Optimization) via Unsloth",
         "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter",
@@ -173,10 +173,12 @@ def root():
         "endpoints": {
             "GET /": "This page — project info",
             "GET /health": "Health check",
+            "GET /health/green": "Track C green-code subsystem status",
             "GET /docs": "Interactive API documentation (Swagger UI)",
             "POST /reset": "Start a new episode",
             "POST /step": "Take an action in the environment",
             "POST /infer": "Run trained agent on an observation (requires GPU)",
+            "GET /dashboard/co2/{episode_id}": "CO2 savings dashboard for an episode",
         },
     }
 
