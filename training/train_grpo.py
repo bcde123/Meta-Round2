@@ -29,6 +29,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from environment.episode_generator import EpisodeGenerator
 from environment.track_b import ComplianceChecker
+from environment.track_c import GreenCodeEvaluator
 
 MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
@@ -226,24 +227,22 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
                 evaluator_b.step(action, f"Edited {fname}")
             score_b = evaluator_b.get_score()
 
-            # ── Code delta bonus: reward for actually changing the code ────────
-            total_orig_len = sum(len(c) for c in orig_files.values())
-            total_new_len = sum(len(c) for c in updated_files.values())
-            # Small bonus if code got shorter (refactoring), penalty if bloated
-            if total_orig_len > 0:
-                delta_ratio = (total_orig_len - total_new_len) / total_orig_len
-                delta_bonus = max(-0.05, min(0.05, delta_ratio * 0.1))
-            else:
-                delta_bonus = 0.0
+            # ── Green-code efficiency (Track C) ──────────────────────────────
+            evaluator_c = GreenCodeEvaluator()
+            green_score = evaluator_c.evaluate(orig_files, updated_files)
+            score_c = green_score.total
+            print(f"    [Track C] completion {idx}: green_score={score_c:.3f} "
+                  f"(graphlet={green_score.graphlet_score:.3f}, "
+                  f"cpu={green_score.cpu_improvement:.3f}, "
+                  f"mem={green_score.memory_improvement:.3f})")
 
             # ── Final reward: weighted combination ────────────────────────────
-            # Weights: quality=0.3, compliance=0.25, parsability=0.25, format=0.1, delta=0.1
+            # Weights: quality=0.50, compliance=0.35, green=0.15, +format bonus
             reward = (
-                0.30 * score_a +
-                0.25 * score_b +
-                0.25 * parse_score +
-                format_reward +
-                delta_bonus
+                0.50 * score_a +
+                0.35 * score_b +
+                0.15 * score_c +
+                format_reward
             )
             rewards.append(reward)
         except Exception as e:

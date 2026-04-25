@@ -10,6 +10,8 @@ import torch
 from environment.episode_generator import EpisodeGenerator
 from environment.track_a import CodeQualityEvaluator
 from environment.track_b import ComplianceChecker
+from environment.track_c import GreenCodeEvaluator
+from environment.co2_calculator import generate_dashboard_data
 
 app = FastAPI(
     title="Constrained Refactor Gauntlet",
@@ -188,8 +190,36 @@ def health():
         "environment": "constrained-refactor-gauntlet",
         "gpu_available": gpu_available,
         "inference_ready": gpu_available,
-        "endpoints": ["/reset", "/step", "/infer", "/health"],
+        "endpoints": ["/reset", "/step", "/infer", "/health", "/health/green", "/dashboard/co2/{episode_id}"],
     }
+
+
+@app.get("/health/green")
+def health_green():
+    """Health check for Track C green-code subsystem."""
+    return {"track_c": "enabled", "graphlet_analyzer": "active"}
+
+
+@app.get("/dashboard/co2/{episode_id}")
+async def dashboard_co2(episode_id: str):
+    """Return CO2 savings dashboard data for an active episode.
+
+    Runs GreenCodeEvaluator comparing current vs original files and
+    returns full green metrics with CO2 equivalences.
+    """
+    if episode_id not in active_episodes:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    ctx = active_episodes[episode_id]
+    orig_files = ctx.generator.generate()["files"]  # regenerate baseline
+    updated_files = ctx.files
+
+    evaluator = GreenCodeEvaluator()
+    green_score = evaluator.evaluate(orig_files, updated_files)
+    payload = generate_dashboard_data(green_score, orig_files, updated_files)
+    payload["episode_id"] = episode_id
+
+    return payload
 
 
 class InferRequest(BaseModel):
