@@ -19,6 +19,11 @@ bitsandbytes==0.47.0
 xformers==0.0.29.post3
 unsloth==2025.11.1
 unsloth_zoo==2025.11.2
+# torchao 0.15+ uses torch.utils._pytree.register_constant, which requires
+# torch ≥ 2.7. unsloth-zoo 2025.11 was tested against torchao 0.14.1, so
+# pin to that. Otherwise pip resolves to torchao 0.17.0 and unsloth's
+# import fails on torch 2.6 with `'_pytree' has no attribute 'register_constant'`.
+torchao==0.14.1
 triton==3.2.0
 hf_transfer
 matplotlib>=3.7.0
