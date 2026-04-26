@@ -1,5 +1,6 @@
 fastapi>=0.110.0
 uvicorn>=0.29.0
+openenv-core>=0.2.3
 openai>=1.23.0
 pytest>=8.0.0
 ruff>=0.4.0
@@ -7,14 +8,22 @@ astor>=0.8.1
 python-dotenv>=1.0.0
 httpx>=0.27.0
 tqdm>=4.66.0
-transformers>=4.40.0
-trl>=0.8.6
+transformers==4.57.2
+trl==0.23.0
 wandb>=0.17.0
-torch>=2.2.0
-peft>=0.10.0
-datasets
-accelerate
-bitsandbytes
-unsloth
-vllm
-triton
+torch==2.6.0
+peft==0.19.1
+datasets==4.8.4
+accelerate==1.13.0
+bitsandbytes==0.47.0
+xformers==0.0.29.post3
+unsloth==2025.11.1
+unsloth_zoo==2025.11.2
+# torchao 0.15+ uses torch.utils._pytree.register_constant, which requires
+# torch ≥ 2.7. unsloth-zoo 2025.11 was tested against torchao 0.14.1, so
+# pin to that. Otherwise pip resolves to torchao 0.17.0 and unsloth's
+# import fails on torch 2.6 with `'_pytree' has no attribute 'register_constant'`.
+torchao==0.14.1
+triton==3.2.0
+hf_transfer
+matplotlib>=3.7.0

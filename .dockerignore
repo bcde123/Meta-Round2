@@ -15,3 +15,11 @@ ENV/
 grpo_output/
 *.egg-info/
 node_modules/
+
+# Not needed at runtime in the container
+notebooks/
+assets/
+test_deployment.py
+test_reset.py
+generate_rules_v2.py
+training/verify_pipeline.py

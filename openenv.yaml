@@ -1,9 +1,18 @@
-name: constrained-refactor-gauntlet
+name: green-code-optimizer
 version: "1.0.0"
-description: "RL environment where an agent refactors a legacy Python codebase while obeying 150 cascading engineering rules. Reward = CodeScore × ComplianceScore."
+description: >-
+  OpenEnv RL environment that trains a code agent to refactor Python for energy
+  efficiency. The agent is rewarded for reducing CPU cycles and peak memory
+  while preserving program logic. A graphlet analyzer represents control-flow
+  patterns (nested loops, expensive calls, deep branching) so the agent learns
+  which structures are "expensive" and swaps them for "cheap" alternatives. A
+  CO2-savings dashboard converts the reduction into real-world impact (kg CO2
+  saved per year, tree-equivalents, car-km equivalents).
 endpoints:
   reset: POST /reset
   step: POST /step
+  state: GET /state/{episode_id}
+  rubric: GET /rubric
   health: GET /health
 observation_space:
   files: dict
@@ -12,5 +21,43 @@ observation_space:
   curriculum_level: int
 action_space:
   tools: [read_file, edit_file, run_tests, check_compliance]
-reward_range: [0.0, 1.0]
+
+# Reward is implemented as a composable Rubric (RFC 004).
+# Source: environment/rubrics.py — extends openenv.core.rubrics.Rubric when
+# openenv-core is installed; falls back to an API-compatible local shim otherwise.
+rubric:
+  type: openenv.core.rubrics.containers.Sequential
+  formula: "R = (syntax_gate ∧ hack_gate) × (0.70·green + 0.30·compliance)"
+  children:
+    syntax_gate:
+      type: leaf
+      range: [0.0, 1.0]
+      gate: true
+      description: "Binary gate — 1.0 iff all refactored files parse"
+    hack_gate:
+      type: leaf
+      range: [-1.0, 1.0]
+      gate: true
+      description: "Binary gate — penalises tampering with test/conftest files"
+    green:
+      type: openenv.core.rubrics.containers.WeightedSum
+      weight: 0.70
+      children:
+        graphlet:
+          weight: 0.40
+          description: "Avoidance of costly control-flow graphlets"
+        cpu:
+          weight: 0.35
+          description: "Relative CPU-time reduction vs. original code"
+        memory:
+          weight: 0.25
+          description: "Relative peak-memory reduction vs. original code"
+    compliance:
+      type: leaf
+      weight: 0.30
+      description: "Fraction of active engineering rules satisfied"
+  efficiency_penalty:
+    per_edit: 0.01
+    note: "Held outside the rubric — training-time minimal-edits nudge"
+reward_range: [-1.0, 1.0]
 max_steps: 70

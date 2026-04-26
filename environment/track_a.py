@@ -21,32 +21,36 @@ class CodeQualityEvaluator:
         try:
             result = subprocess.run(
                 ["pytest", temp_dir, "--collect-only", "-q"],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=10,
             )
             if "no tests collected" in result.stdout:
                 return 0.0
-                
+
             result = subprocess.run(
-                ["pytest", temp_dir],
-                capture_output=True, text=True
+                ["pytest", temp_dir, "-x", "--no-header", "-q"],
+                capture_output=True, text=True, timeout=20,
             )
-            
+
             output = result.stdout
             if "failed" in output and "passed" in output:
                 return 0.5
             elif "failed" in output:
                 return 0.0
             return 1.0
+        except subprocess.TimeoutExpired:
+            return 0.0
         except Exception:
             return 0.0
-            
+
     def _run_ruff(self, temp_dir: str) -> int:
         try:
             result = subprocess.run(
                 ["ruff", "check", temp_dir],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=15,
             )
             return len([line for line in result.stdout.split('\n') if ".py:" in line])
+        except subprocess.TimeoutExpired:
+            return 100
         except Exception:
             return 100
             

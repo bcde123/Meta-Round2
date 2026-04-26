@@ -1,5 +1,5 @@
 """
-inference.py — Inference endpoint for the Constrained Refactor Gauntlet agent.
+inference.py — Inference endpoint for the Green-Code Optimizer agent.
 
 Supports two modes:
   1. Local: loads adapter from grpo_output/final_adapter (with Unsloth)
@@ -18,7 +18,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # ── Configuration ────────────────────────────────────────────────────────────
-BASE_MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct"
+BASE_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 MAX_SEQ_LENGTH = 4096
 
 # Adapter source: HuggingFace Hub repo OR local path
@@ -30,11 +30,18 @@ ADAPTER_LOCAL_PATH = os.getenv(
 HF_TOKEN = os.getenv("HF_TOKEN", None)
 
 SYSTEM_PROMPT = (
-    "You are an expert Python refactoring agent. Your task is to clean up the provided codebase, "
-    "improve its quality (tests, linting, complexity), and fix compliance issues.\n"
-    "You must return your edited files using the following exact XML format:\n"
+    "You are an expert Python refactoring agent focused on ENERGY EFFICIENCY.\n"
+    "Your goal: minimise CPU cycles and peak memory while preserving program logic.\n"
+    "Specifically prefer:\n"
+    "  • List/dict/set comprehensions over append-loops\n"
+    "  • Vectorised / built-in operations (sum, map) over manual accumulation\n"
+    "  • Hoisting loop-invariant work outside the loop\n"
+    "  • Eliminating dead code and redundant computation\n"
+    "  • Flattening unnecessarily nested loops\n"
+    "Do NOT alter test files or break any existing assertions.\n"
+    "Return edited files using EXACTLY this XML format:\n"
     '<file name="filename.py">\n... complete new code ...\n</file>\n'
-    "Do not omit any code inside the file block. Provide the full updated file."
+    "Provide the full updated file content (do not omit any code)."
 )
 
 
@@ -63,8 +70,10 @@ def _load_model():
         print("✅ Model loaded via Unsloth")
         return model, tokenizer
 
-    except (ImportError, Exception) as e:
-        print(f"Unsloth unavailable ({e}), falling back to transformers+peft...")
+    except Exception as e:
+        # Catch ImportError, runtime errors, OOM, etc. and fall back.
+        print(f"Unsloth unavailable ({type(e).__name__}: {e}), "
+              f"falling back to transformers+peft...")
 
     # ── Fallback: vanilla transformers + peft (Docker/CPU) ───────────────
     print(f"Loading base model: {BASE_MODEL}")

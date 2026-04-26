@@ -1,7 +1,29 @@
 import os
+import pwd
+import getpass
 import time
+
+# Hard patch pwd.getpwuid to never raise KeyError for the current user
+def dummy_getpwuid(uid):
+    return ('huggingface', 'x', uid, 1000, 'HuggingFace user', '/home/huggingface', '/bin/sh')
+
+pwd.getpwuid = dummy_getpwuid
+
+# Hard patch getpass.getuser to immediately return the dummy user
+def dummy_getuser():
+    return "huggingface"
+
+getpass.getuser = dummy_getuser
+
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-os.environ["WANDB_DISABLED"] = "true"  # Prevent wandb login prompt on Colab
+os.environ["WANDB_DISABLED"] = "true"
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/torch_inductor"
+os.environ["USER"] = "huggingface"
+os.environ["TORCHINDUCTOR_DISABLE"] = "1"
+os.environ["LOGNAME"] = "huggingface"
+# Deadline-safe training mode: use compile-time Track C profiling inside the
+# reward function. The live env/dashboard can still use runtime profiling.
+os.environ.setdefault("GREEN_PROFILE_MODE", "compile")
 import re
 import json
 import random
@@ -12,41 +34,53 @@ try:
 except ImportError:
     wandb = None
 
-# ── Unsloth + GPU imports (deferred for CPU-only testing) ─────────────────────
+import torch
+
+# ── Unsloth + GPU imports ─────────────────────────────────────────────────────
+# Imported at module level for GPU capability detection; training imports
+# (GRPOConfig, GRPOTrainer) are deferred into main() so any error is visible.
 try:
-    import torch
     from unsloth import FastLanguageModel, PatchFastRL
-    PatchFastRL("GRPO", FastLanguageModel)          # patch TRL's GRPOTrainer for 2x speed
-    from trl import GRPOConfig, GRPOTrainer
-    HAS_GPU = True
-except (ImportError, NotImplementedError):
-    HAS_GPU = False
-# ─────────────────────────────────────────────────────────────────────────────
+    _UNSLOTH_OK = True
+except Exception as e:
+    print(f"⚠️  Unsloth import failed: {e}")
+    _UNSLOTH_OK = False
 # ─────────────────────────────────────────────────────────────────────────────
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from environment.episode_generator import EpisodeGenerator
-from environment.track_b import ComplianceChecker
-from environment.track_c import GreenCodeEvaluator
+from environment.rubrics import (
+    build_green_rubric,
+    CodeAction,
+    CodeObservation,
+    OPENENV_AVAILABLE,
+)
 
-MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
+print(f"  Rubric ready (openenv-core integration: {OPENENV_AVAILABLE})")
+
+MODEL_NAME = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
 STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md"))
 
-# ── Unsloth hyperparameters ───────────────────────────────────────────────────
-MAX_SEQ_LENGTH = 4096       # Context window for training + generation
-LORA_RANK = 32              # LoRA rank (8, 16, 32, 64, 128)
-LOAD_IN_4BIT = True         # QLoRA – 4-bit quantization for ~60% VRAM reduction
+# ── Deadline-safe Unsloth hyperparameters ─────────────────────────────────────
+# Tuned for a final A100 Space run with ~1.5h left, including build/startup time.
+MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "1536"))
+LORA_RANK = int(os.getenv("LORA_RANK", "8"))
+TRAIN_MAX_STEPS = int(os.getenv("TRAIN_MAX_STEPS", "80"))
+TRAIN_NUM_EPISODES = int(os.getenv("TRAIN_NUM_EPISODES", "80"))
+TRAIN_NUM_GENERATIONS = int(os.getenv("TRAIN_NUM_GENERATIONS", "2"))
+MAX_COMPLETION_LENGTH = int(os.getenv("MAX_COMPLETION_LENGTH", "384"))
+LOAD_IN_4BIT = True         # QLoRA – keeps VRAM low for fast iterations
 GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
 
 # Auto-detect GPU capabilities:
 #   - bf16 requires Ampere+ (compute >= 8.0); T4 must use fp16
-#   - vLLM is DISABLED: v0.19.1 has a graph compilation bug with BitsAndBytes
-#     ("Tried to erase Node size_3") that crashes on ALL GPUs (T4, A100, H100).
-#     Unsloth's training speedups still work; only generation rollouts fall back
-#     to HuggingFace generate() which is slightly slower but reliable.
+#   - vLLM is not installed/used in the deadline build. It caused dependency
+#     resolver bloat and `vllm.lora.models` import failures with recent wheels.
+#     Unsloth's core training speedups still work; generation falls back to
+#     HuggingFace generate(), which is slower but reliable.
 def _detect_gpu_caps():
     fast_inference = False  # vLLM disabled due to v0.19.1 bug
     use_bf16 = False
@@ -57,7 +91,7 @@ def _detect_gpu_caps():
             gpu_name = torch.cuda.get_device_name(0)
             if cc[0] >= 8:
                 use_bf16 = True
-                print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → bf16 ON, vLLM OFF (v0.19.1 bug)")
+                print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → bf16 ON, vLLM OFF")
             else:
                 print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → fp16 ON, vLLM OFF")
     except Exception:
@@ -86,165 +120,185 @@ def extract_completion_text(completion):
         return " ".join(msg.get("content", "") for msg in completion if isinstance(msg, dict))
     return str(completion)
 
-def _compute_lint_score(code_text: str) -> float:
-    issues = 0
-    lines = code_text.split("\n")
-    for line in lines:
-        if len(line) > 88: issues += 1
-        if line.rstrip() != line: issues += 1
-        if "import *" in line: issues += 1
-        if line.strip().startswith("except:"): issues += 1
-    return max(0.0, 1.0 - issues / max(len(lines), 1))
+# ═══════════════════════════════════════════════════════════════════════════════
+# ANTI-CHEAT CONSTANTS
+# ═══════════════════════════════════════════════════════════════════════════════
+PROTECTED_FILES = frozenset({"conftest.py", "test_main.py", "test_api.py",
+                             "test_utils.py", "pytest.ini", "setup.cfg"})
+FORBIDDEN_NAMES = frozenset({"varelunixo", "xhackbypass", "__reward_stub__"})
+EFFICIENCY_PENALTY_PER_EDIT = 0.01   # Small cost per edited file
+HACK_PENALTY = -1.0                   # Immediate termination-level penalty
 
-def _compute_complexity(files: dict) -> float:
-    total_branches = 0
-    total_functions = 0
-    for content in files.values():
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HACK DETECTION
+# Outer layer of defense — detects more reward-hacking patterns than the
+# rubric's `HackGateRubric` (which only checks protected-file edits). The
+# rubric's gate remains as a defense-in-depth fallback.
+# ═══════════════════════════════════════════════════════════════════════════════
+def _detect_hack(edits: dict, orig_files: dict) -> tuple:
+    """Layered anti-cheat verification.
+
+    Returns (is_hack: bool, reason: str).
+    Checks:
+      1. Editing protected / test infrastructure files.
+      2. Introducing test stubs (e.g. `def test_all(): return True`).
+      3. Using forbidden naming conventions.
+      4. Deleting all test assertions.
+    """
+    for fname in edits:
+        # 1. Protected-file guard
+        basename = fname.rsplit("/", 1)[-1] if "/" in fname else fname
+        if basename in PROTECTED_FILES:
+            return True, f"Edited protected file: {fname}"
+        if basename.startswith("test_") and fname not in orig_files:
+            return True, f"Created new test file to bypass checks: {fname}"
+
+    for fname, content in edits.items():
         try:
             tree = ast.parse(content)
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    total_functions += 1
-                    for subnode in ast.walk(node):
-                        if isinstance(subnode, (ast.If, ast.For, ast.While, ast.ExceptHandler)):
-                            total_branches += 1
         except SyntaxError:
-            pass
-    if total_functions == 0: return 0.0
-    return total_branches / total_functions
+            continue  # unparseable code is penalised by binary gate, not hack
 
-def _compute_module_size_compliance(files: dict) -> float:
-    if not files: return 0.0
-    compliant = sum(1 for content in files.values() if len(content.split("\n")) <= 200)
-    return compliant / len(files)
+        for node in ast.walk(tree):
+            # 2. Test-stub detection: test functions that only `return True`
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+                body = [n for n in node.body
+                        if not isinstance(n, (ast.Expr,))
+                        or not isinstance(getattr(n, 'value', None), ast.Constant)]
+                if len(body) == 1 and isinstance(body[0], ast.Return):
+                    val = body[0].value
+                    if isinstance(val, ast.Constant) and val.value is True:
+                        return True, f"Test stub detected in {fname}: {node.name}"
 
-def _has_docstrings(code_text: str) -> float:
-    try:
-        tree = ast.parse(code_text)
-    except SyntaxError:
-        return 0.0
-    total = 0
-    with_doc = 0
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            total += 1
-            if ast.get_docstring(node):
-                with_doc += 1
-    if total == 0: return 1.0
-    return with_doc / total
+            # 3. Forbidden names
+            if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+                return True, f"Forbidden name '{node.id}' in {fname}"
+            if isinstance(node, ast.FunctionDef) and node.name in FORBIDDEN_NAMES:
+                return True, f"Forbidden function name '{node.name}' in {fname}"
 
-def _has_type_hints(code_text: str) -> float:
-    try:
-        tree = ast.parse(code_text)
-    except SyntaxError:
-        return 0.0
-    total_args = 0
-    annotated_args = 0
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for arg in node.args.args:
-                if arg.arg not in ("self", "cls"):
-                    total_args += 1
-                    if arg.annotation is not None:
-                        annotated_args += 1
-    if total_args == 0: return 1.0
-    return annotated_args / total_args
+        # 4. Deleted all assertions from a file that originally had them
+        if fname in orig_files:
+            orig_asserts = sum(1 for n in ast.walk(ast.parse(orig_files[fname]))
+                               if isinstance(n, ast.Assert))
+            new_asserts = sum(1 for n in ast.walk(tree)
+                              if isinstance(n, ast.Assert))
+            if orig_asserts > 0 and new_asserts == 0:
+                return True, f"All assertions deleted from {fname}"
 
-def compute_code_quality_fast(orig_files: dict, updated_files: dict) -> float:
-    orig_lint = sum(_compute_lint_score(c) for c in orig_files.values()) / max(len(orig_files), 1)
-    new_lint = sum(_compute_lint_score(c) for c in updated_files.values()) / max(len(updated_files), 1)
-    lint_improvement = max(0.0, new_lint - orig_lint + 0.5)
-    lint_improvement = min(lint_improvement, 1.0)
-    orig_complexity = _compute_complexity(orig_files)
-    new_complexity = _compute_complexity(updated_files)
-    if orig_complexity == 0:
-        complexity_score = 1.0
-    else:
-        complexity_score = max(0.0, (orig_complexity - new_complexity) / orig_complexity)
-    size_score = _compute_module_size_compliance(updated_files)
-    doc_score = sum(_has_docstrings(c) for c in updated_files.values()) / max(len(updated_files), 1)
-    hint_score = sum(_has_type_hints(c) for c in updated_files.values()) / max(len(updated_files), 1)
-    total = (0.25 * lint_improvement + 0.20 * complexity_score + 0.20 * size_score + 0.20 * doc_score + 0.15 * hint_score)
-    return total
+    return False, ""
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMPOSABLE-RUBRIC REWARD FUNCTION
+# R = (syntax_gate ∧ hack_gate) × (0.70·green + 0.30·compliance) − P_efficiency
+# Implemented in environment/rubrics.py; per-component scores are exposed via
+# `rubric.named_rubrics()` for logging.
+# ═══════════════════════════════════════════════════════════════════════════════
 def reward_function(completions, prompts, files, rules_active, **kwargs):
-    """Compute rewards for GRPO training.
-    
-    Uses fast AST-based code quality scoring (no subprocess calls)
-    and a graduated format reward to bootstrap learning.
+    """Compute rewards for GRPO training via the composable Green-Code Rubric.
+
+    Formula (via `environment/rubrics.py::build_green_rubric`):
+        R = (syntax_gate ∧ hack_gate) × (0.70·green + 0.30·compliance)
+            − P_efficiency + format_bonus
+
+    Design principles:
+      • Hack outer-layer (`_detect_hack`) returns -1.0 immediately on cheating;
+        the rubric's own `hack_gate` is a defense-in-depth fallback.
+      • The rubric's `syntax_gate` zeroes the reward if any file fails to parse.
+      • `green` decomposes into graphlet (0.40), CPU (0.35), memory (0.25).
+      • `compliance` is the engineering-rule satisfaction fraction.
+      • `P_efficiency` (0.01 per edit) sits OUTSIDE the rubric — it's a
+        training-time minimal-edits nudge, not part of the env reward.
+      • `format_bonus` bootstraps early learning of the required XML structure.
     """
     t0 = time.time()
     rewards = []
     files_batch = [json.loads(f) for f in files]
     rules_batch = [json.loads(r) for r in rules_active]
-    
-    for idx, (completion, orig_files, active_rules) in enumerate(zip(completions, files_batch, rules_batch)):
+
+    for idx, (completion, orig_files, active_rules) in enumerate(
+        zip(completions, files_batch, rules_batch)
+    ):
         try:
             completion_text = extract_completion_text(completion)
             edits = parse_completions(completion_text)
 
-            # ── Format reward: graduated, fine-grained ────────────────────────
-            format_reward = 0.0
-            if "<file" in completion_text: format_reward += 0.02
-            if '</file>' in completion_text: format_reward += 0.02
+            # ── Format bonus (bootstrap signal) ──────────────────────────────
+            format_bonus = 0.0
+            if "<file" in completion_text:
+                format_bonus += 0.02
+            if "</file>" in completion_text:
+                format_bonus += 0.02
             if edits:
-                # Reward scales with how many original files were edited (0-4)
                 valid_edits = {k: v for k, v in edits.items() if k in orig_files}
-                format_reward += 0.06 * min(len(valid_edits), 4) / 4.0
-            
+                format_bonus += 0.06 * min(len(valid_edits), 4) / 4.0
+
             if not edits:
-                rewards.append(-0.1 + format_reward)
+                rewards.append(-0.1 + format_bonus)
                 continue
 
-            # ── Apply edits to codebase ────────────────────────────────────────
+            # ── Apply edits ──────────────────────────────────────────────────
             updated_files = orig_files.copy()
-            parse_successes = 0
-            parse_total = 0
             for fname, content in edits.items():
                 if fname in updated_files:
                     updated_files[fname] = content
-                    parse_total += 1
-                    try:
-                        ast.parse(content)
-                        parse_successes += 1
-                    except SyntaxError:
-                        pass
 
-            # ── Parsability bonus: key differentiator between completions ──────
-            if parse_total > 0:
-                parse_score = parse_successes / parse_total  # 0.0 to 1.0
-            else:
-                parse_score = 0.0
+            # ── HACK DETECTION (P_hack) ──────────────────────────────────────
+            is_hack, hack_reason = _detect_hack(edits, orig_files)
+            if is_hack:
+                print(f"    ⚠ HACK detected (completion {idx}): {hack_reason}")
+                rewards.append(HACK_PENALTY)
+                continue
 
-            # ── Code quality (Track A) ────────────────────────────────────────
-            score_a = compute_code_quality_fast(orig_files, updated_files)
+            # ── EFFICIENCY PENALTY (P_efficiency) ────────────────────────────
+            # Held outside the rubric: it's a training-time minimal-edits
+            # nudge, not a property of the environment's reward function.
+            num_files_edited = sum(
+                1 for f in edits if f in orig_files
+            )
+            p_efficiency = EFFICIENCY_PENALTY_PER_EDIT * num_files_edited
 
-            # ── Compliance (Track B) ──────────────────────────────────────────
-            evaluator_b = ComplianceChecker(STANDARDS_PATH)
-            evaluator_b.reset(orig_files, active_rules)
-            for fname in edits.keys():
-                action = {"tool": "edit_file", "args": {"filename": fname}}
-                evaluator_b.step(action, f"Edited {fname}")
-            score_b = evaluator_b.get_score()
+            # ── COMPOSABLE RUBRIC SCORE ──────────────────────────────────────
+            # The Rubric does:
+            #   syntax_gate ∧ hack_gate × (0.70·green + 0.30·compliance)
+            # where green = 0.40·graphlet + 0.35·cpu + 0.25·memory.
+            # All component scores are exposed via `named_rubrics()`.
+            # Fresh rubric per completion keeps `last_score` logs accurate even
+            # when a gate short-circuits and downstream children are skipped.
+            rubric = build_green_rubric()
+            rubric_score = rubric(
+                action=CodeAction(updated_files=updated_files),
+                observation=CodeObservation(
+                    orig_files=orig_files,
+                    active_rules=active_rules,
+                    standards_path=STANDARDS_PATH,
+                ),
+            )
 
-            # ── Green-code efficiency (Track C) ──────────────────────────────
-            evaluator_c = GreenCodeEvaluator()
-            green_score = evaluator_c.evaluate(orig_files, updated_files)
-            score_c = green_score.total
-            print(f"    [Track C] completion {idx}: green_score={score_c:.3f} "
-                  f"(graphlet={green_score.graphlet_score:.3f}, "
-                  f"cpu={green_score.cpu_improvement:.3f}, "
-                  f"mem={green_score.memory_improvement:.3f})")
+            # Pull individual component scores for logging
+            children = dict(rubric.named_rubrics())
+            s_test = children["syntax_gate"].last_score or 0.0
+            green = children["green"].last_score or 0.0
+            graphlet = children["green.graphlet"].last_score or 0.0
+            cpu = children["green.cpu"].last_score or 0.0
+            mem = children["green.memory"].last_score or 0.0
+            compliance_score = children["compliance"].last_score or 0.0
 
-            # ── Final reward: weighted combination ────────────────────────────
-            # Weights: quality=0.50, compliance=0.35, green=0.15, +format bonus
-            reward = (
-                0.50 * score_a +
-                0.35 * score_b +
-                0.15 * score_c +
-                format_reward
+            # Format bonus only applies after the rubric gives a positive score.
+            # Broken or empty code must not earn points for merely using XML.
+            reward = rubric_score - p_efficiency
+            if rubric_score > 0:
+                reward += format_bonus
+
+            print(
+                f"    [Reward] #{idx}: gate={s_test:.0f} | "
+                f"green={green:.3f} (g={graphlet:.2f}, cpu={cpu:.2f}, mem={mem:.2f}) | "
+                f"compliance={compliance_score:.3f} | "
+                f"P_eff={p_efficiency:.3f} | R={reward:.4f}"
             )
             rewards.append(reward)
+
         except Exception as e:
             print(f"Reward calculation error: {e}")
             rewards.append(-0.1)
@@ -266,13 +320,23 @@ def create_training_dataset(num_episodes=50):
             if len(code_context) + len(file_block) > 8000: break
             code_context += file_block
         system_prompt = (
-            "You are an expert Python refactoring agent. Your task is to clean up the provided codebase, "
-            "improve its quality (tests, linting, complexity), and fix compliance issues.\n"
-            "You must return your edited files using the following exact XML format:\n"
+            "You are an expert Python refactoring agent focused on ENERGY EFFICIENCY.\n"
+            "Your goal: minimise CPU cycles and peak memory while preserving program logic.\n"
+            "Specifically prefer:\n"
+            "  • List/dict/set comprehensions over append-loops\n"
+            "  • Vectorised / built-in operations (sum, map) over manual accumulation\n"
+            "  • Hoisting loop-invariant work outside the loop\n"
+            "  • Eliminating dead code and redundant computation\n"
+            "  • Flattening unnecessarily nested loops\n"
+            "Do NOT alter test files or break any existing assertions.\n"
+            "Return edited files using EXACTLY this XML format:\n"
             "<file name=\"filename.py\">\n... complete new code ...\n</file>\n"
-            "Do not omit any code inside the file block. Provide the full updated file."
+            "Provide the full updated file content (do not omit any code)."
         )
-        user_prompt = f"Here is the codebase to refactor:\n{code_context}\n\nPlease refactor and return the updated files."
+        user_prompt = (
+            f"Refactor the following codebase for energy efficiency. "
+            f"Preserve all behaviour; just make it cheaper to run.\n{code_context}"
+        )
         prompt_messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
         dataset_dict["prompt"].append(prompt_messages)
         dataset_dict["files"].append(json.dumps(ep["files"]))
@@ -280,9 +344,21 @@ def create_training_dataset(num_episodes=50):
     return datasets.Dataset.from_dict(dataset_dict)
 
 def main():
-    if not HAS_GPU:
-        print("❌ GPU required for training. Run this on Colab or a machine with NVIDIA/AMD GPU.")
+    if not torch.cuda.is_available():
+        print("❌ No CUDA GPU detected. Training requires an NVIDIA GPU.")
         return
+    if not _UNSLOTH_OK:
+        print("❌ Unsloth failed to import — cannot train. Check logs above for the error.")
+        return
+
+    # Defer these imports to here so errors are visible instead of silently caught
+    try:
+        PatchFastRL("GRPO", FastLanguageModel)
+        from trl import GRPOConfig, GRPOTrainer
+    except Exception as e:
+        print(f"❌ Failed to patch/import GRPO trainer: {e}")
+        raise
+
     # ── 1. Load model via Unsloth (replaces manual transformers + peft setup) ──
     print("Loading model via Unsloth FastLanguageModel...")
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -314,13 +390,13 @@ def main():
         output_dir=output_dir,
         learning_rate=5e-6,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=2,  # Reduced from 4 to fit 8 generations
-        max_steps=100,
-        num_generations=8,              # 8 generations → more reward variance
-        max_completion_length=512,
-        max_prompt_length=MAX_SEQ_LENGTH - 512,
-        temperature=1.0,                # Higher temperature → diverse completions
-        save_steps=25,
+        gradient_accumulation_steps=2,
+        max_steps=TRAIN_MAX_STEPS,
+        num_generations=TRAIN_NUM_GENERATIONS,
+        max_completion_length=MAX_COMPLETION_LENGTH,
+        max_prompt_length=MAX_SEQ_LENGTH - MAX_COMPLETION_LENGTH,
+        temperature=0.9,
+        save_steps=40,
         logging_steps=5,
         bf16=USE_BF16,
         fp16=not USE_BF16,
@@ -329,7 +405,7 @@ def main():
     training_args = GRPOConfig(**grpo_kwargs)
 
     # ── 4. Train ───────────────────────────────────────────────────────────────
-    train_dataset = create_training_dataset(num_episodes=200)
+    train_dataset = create_training_dataset(num_episodes=TRAIN_NUM_EPISODES)
     trainer = GRPOTrainer(
         model=model,
         reward_funcs=reward_function,
@@ -346,6 +422,121 @@ def main():
     model.save_pretrained(final_path)
     tokenizer.save_pretrained(final_path)
     print(f"✅ Training complete! Adapter saved to {final_path}")
+
+    # ── 5b. Save loss + reward plots (evidence for hackathon submission) ──────
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        history = trainer.state.log_history or []
+
+        # Persist raw history for reproducibility
+        assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../assets"))
+        os.makedirs(assets_dir, exist_ok=True)
+        with open(os.path.join(assets_dir, "log_history.json"), "w") as f:
+            json.dump(history, f, indent=2, default=str)
+
+        import math
+
+        def _finite(v):
+            try:
+                v = float(v)
+                return v if math.isfinite(v) else None
+            except (TypeError, ValueError):
+                return None
+
+        # X-axis = global trainer step (not row index) when available.
+        # Filter rows where the value is None/NaN so plotting never crashes
+        # on a partial run.
+        loss_pts = [
+            (h["step"], _finite(h.get("loss")))
+            for h in history if "loss" in h and "step" in h
+        ]
+        loss_pts = [(s, y) for s, y in loss_pts if y is not None]
+        rew_pts = [
+            (h["step"], _finite(h.get("reward")))
+            for h in history if "reward" in h and "step" in h
+        ]
+        rew_pts = [(s, y) for s, y in rew_pts if y is not None]
+
+        fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+        fig.suptitle(
+            f"Green-Code Optimizer — GRPO training run "
+            f"(Qwen-2.5-Coder-1.5B, LoRA r={LORA_RANK}, "
+            f"reward = 0.70·green + 0.30·compliance)",
+            fontsize=11, fontweight="bold", y=1.02,
+        )
+        if loss_pts:
+            xs, ys = zip(*loss_pts)
+            axes[0].plot(xs, ys, color="#dc2626", linewidth=1.8, marker="o", markersize=3)
+            axes[0].set_title("Policy loss (lower is better)", fontsize=11)
+            axes[0].set_xlabel("Training step", fontsize=10)
+            axes[0].set_ylabel("Loss (cross-entropy, nats)", fontsize=10)
+            axes[0].grid(True, alpha=0.3, linestyle="--")
+            axes[0].set_axisbelow(True)
+        if rew_pts:
+            xs, ys = zip(*rew_pts)
+            axes[1].plot(xs, ys, color="#059669", linewidth=1.8, marker="o", markersize=3,
+                         label="Mean reward / batch")
+            # Reference lines: no-op and oracle baselines from compare_baseline.py
+            try:
+                bl_path = os.path.join(assets_dir, "baseline_vs_trained.json")
+                if os.path.exists(bl_path):
+                    with open(bl_path) as f:
+                        bl = json.load(f)["summary"]
+                    if "noop" in bl:
+                        axes[1].axhline(bl["noop"]["mean_reward"], color="#94a3b8",
+                                        linestyle=":", linewidth=1.5,
+                                        label=f"No-op baseline ({bl['noop']['mean_reward']:.2f})")
+                    if "oracle" in bl:
+                        axes[1].axhline(bl["oracle"]["mean_reward"], color="#3b82f6",
+                                        linestyle="--", linewidth=1.5,
+                                        label=f"Oracle ceiling ({bl['oracle']['mean_reward']:.2f})")
+            except Exception:
+                pass
+            axes[1].set_title("Episode reward (higher is better)", fontsize=11)
+            axes[1].set_xlabel("Training step", fontsize=10)
+            axes[1].set_ylabel("Reward (rubric, range −1.0 to 1.0)", fontsize=10)
+            axes[1].grid(True, alpha=0.3, linestyle="--")
+            axes[1].set_axisbelow(True)
+            axes[1].legend(loc="lower right", fontsize=8, framealpha=0.95)
+        plt.tight_layout()
+        plot_path = os.path.join(assets_dir, "training_curves.png")
+        plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"📊 Saved training plots to {plot_path}")
+    except Exception as e:
+        print(f"⚠️  Plot generation failed: {e}")
+
+    # ── 6. Upload adapter to HF Hub (so it survives container restarts) ───────
+    hub_repo = os.getenv("HF_ADAPTER_REPO", "shreeyanshi03/constrained-refactor-adapter-1.5b")
+    hf_token = os.getenv("HF_TOKEN", None)
+    if hub_repo and hf_token:
+        try:
+            from huggingface_hub import HfApi
+            api = HfApi(token=hf_token)
+            api.create_repo(repo_id=hub_repo, repo_type="model", exist_ok=True, private=False)
+            api.upload_folder(
+                folder_path=final_path,
+                repo_id=hub_repo,
+                repo_type="model",
+                commit_message="GRPO training run complete — adapter upload",
+            )
+            assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../assets"))
+            if os.path.isdir(assets_dir):
+                api.upload_folder(
+                    folder_path=assets_dir,
+                    path_in_repo="assets",
+                    repo_id=hub_repo,
+                    repo_type="model",
+                    commit_message="upload training plots",
+                )
+            print(f"✅ Adapter + plots uploaded to https://huggingface.co/{hub_repo}")
+        except Exception as e:
+            print(f"⚠️  Hub upload failed (adapter still saved locally): {e}")
+    else:
+        print("ℹ️  HF_TOKEN or HF_ADAPTER_REPO not set — skipping Hub upload")
 
 if __name__ == "__main__":
     main()

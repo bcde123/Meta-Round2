@@ -9,7 +9,7 @@ import os
 import sys
 import tempfile
 import subprocess
-import tracemalloc
+import json
 from dataclasses import dataclass
 from typing import Dict
 
@@ -31,7 +31,12 @@ class GreenCodeEvaluator:
     analysis and runtime measurement."""
 
     def measure_execution(self, files: Dict[str, str]) -> Dict[str, float]:
-        """Measure CPU time and peak memory of executing each file.
+        """Measure CPU time and peak memory for each file.
+
+        We first try to execute top-level, pure-looking functions with synthetic
+        sample inputs inside a subprocess (timeout-bounded). Files that cannot be
+        safely imported/executed fall back to compile-time profiling, which still
+        catches AST-size and memory-bloat regressions without hanging training.
 
         Args:
             files: Mapping of filename → source code.
@@ -41,6 +46,7 @@ class GreenCodeEvaluator:
         """
         total_cpu_ms = 0.0
         peak_mem_bytes = 0
+        profile_mode = os.getenv("GREEN_PROFILE_MODE", "runtime").lower()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for fname, content in files.items():
@@ -51,10 +57,12 @@ class GreenCodeEvaluator:
 
             for fname in files:
                 fpath = os.path.join(tmpdir, fname)
-                cpu_ms = self._time_file(fpath)
-                total_cpu_ms += cpu_ms
-
-                mem_bytes = self._measure_memory(fpath)
+                if profile_mode == "compile":
+                    profile = self._profile_compile(fpath)
+                else:
+                    profile = self._profile_file(fpath)
+                total_cpu_ms += profile["cpu_time_ms"]
+                mem_bytes = profile["peak_memory_bytes"]
                 peak_mem_bytes = max(peak_mem_bytes, mem_bytes)
 
         return {
@@ -123,50 +131,129 @@ class GreenCodeEvaluator:
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
-    @staticmethod
-    def _time_file(filepath: str) -> float:
-        """Time a file's import/compile cost using timeit subprocess.
+    def _profile_file(self, filepath: str) -> Dict[str, float]:
+        """Return runtime profile, falling back to compile profile on failure."""
+        runtime = self._profile_runtime(filepath)
+        if runtime is not None:
+            return runtime
+        return self._profile_compile(filepath)
 
-        Returns:
-            Execution time in milliseconds.
+    @staticmethod
+    def _profile_runtime(filepath: str) -> Dict[str, float] | None:
+        """Profile top-level function calls in a subprocess.
+
+        Returns None when a file cannot be safely executed (e.g. package-relative
+        imports in the synthetic codebase); caller then uses compile fallback.
         """
+        harness = r'''
+import ast, datetime as _dt, inspect, json, sys, time, tracemalloc
+
+path = sys.argv[1]
+code = open(path).read()
+tree = ast.parse(code)
+func_names = [
+    node.name for node in tree.body
+    if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")
+]
+
+def sample_for(param):
+    name = param.name.lower()
+    if "date_str" in name or name.endswith("_str"):
+        return "2026-01-01T00:00:00"
+    if "date" in name:
+        return _dt.datetime(2026, 1, 1)
+    if "items" in name or "rows" in name or "users" in name or "tasks" in name:
+        return list(range(200))
+    if "data" in name or "dict" in name:
+        return {"title": "sample task", "due_date": "2026-01-01T00:00:00"}
+    if "page" in name or "size" in name or "count" in name or "n" == name:
+        return 10
+    if "input" in name or "title" in name or "name" in name or "text" in name:
+        return "Sample Input"
+    return 10
+
+ns = {"__name__": "__green_profile__"}
+exec(compile(code, path, "exec"), ns)
+calls = []
+for fname in func_names:
+    fn = ns.get(fname)
+    if not callable(fn) or inspect.iscoroutinefunction(fn):
+        continue
+    sig = inspect.signature(fn)
+    args = []
+    skip = False
+    for p in sig.parameters.values():
+        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            skip = True
+            break
+        if p.default is not p.empty:
+            continue
+        args.append(sample_for(p))
+    if not skip:
+        calls.append((fn, args))
+
+if not calls:
+    # Still execute module top-level under tracing; compile-only fallback handles
+    # the fully non-callable case.
+    calls = []
+
+tracemalloc.start()
+t0 = time.perf_counter()
+for _ in range(5):
+    for fn, args in calls:
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", "timeit", "-n", "1", "-r", "1",
-                 "-s", f"open('{filepath}').read()",
-                 f"compile(open('{filepath}').read(), '{filepath}', 'exec')"],
-                capture_output=True, text=True, timeout=10,
-            )
-            output = result.stdout.strip()
-            # Parse "1 loop, best of 1: X.XX msec per loop"
-            if "msec" in output:
-                return float(output.split(":")[-1].replace("msec per loop", "").strip())
-            if "usec" in output:
-                return float(output.split(":")[-1].replace("usec per loop", "").strip()) / 1000.0
-            if "sec" in output:
-                return float(output.split(":")[-1].replace("sec per loop", "").strip()) * 1000.0
+            fn(*args)
         except Exception:
             pass
-        return 1.0  # fallback: 1ms default
+elapsed_ms = (time.perf_counter() - t0) * 1000.0
+_, peak = tracemalloc.get_traced_memory()
+tracemalloc.stop()
+print(json.dumps({"cpu_time_ms": elapsed_ms, "peak_memory_bytes": peak}))
+'''
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", harness, filepath],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout.strip())
+            return {
+                "cpu_time_ms": float(data["cpu_time_ms"]),
+                "peak_memory_bytes": float(data["peak_memory_bytes"]),
+            }
+        except Exception:
+            return None
 
     @staticmethod
-    def _measure_memory(filepath: str) -> int:
-        """Measure peak memory of compiling a file using tracemalloc.
-
-        Returns:
-            Peak memory in bytes.
-        """
+    def _profile_compile(filepath: str) -> Dict[str, float]:
+        """Profile compile cost using a subprocess fallback."""
+        harness = r'''
+import json, sys, time, tracemalloc
+path = sys.argv[1]
+code = open(path).read()
+tracemalloc.start()
+t0 = time.perf_counter()
+compile(code, path, "exec")
+elapsed_ms = (time.perf_counter() - t0) * 1000.0
+_, peak = tracemalloc.get_traced_memory()
+tracemalloc.stop()
+print(json.dumps({"cpu_time_ms": elapsed_ms, "peak_memory_bytes": peak}))
+'''
         try:
-            code = open(filepath).read()
-            tracemalloc.start()
-            compile(code, filepath, "exec")
-            _, peak = tracemalloc.get_traced_memory()
-            tracemalloc.stop()
-            return peak
+            result = subprocess.run(
+                [sys.executable, "-c", harness, filepath],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                data = json.loads(result.stdout.strip())
+                return {
+                    "cpu_time_ms": float(data["cpu_time_ms"]),
+                    "peak_memory_bytes": float(data["peak_memory_bytes"]),
+                }
         except Exception:
-            if tracemalloc.is_tracing():
-                tracemalloc.stop()
-            return 0
+            pass
+        return {"cpu_time_ms": 1.0, "peak_memory_bytes": 0.0}
 
     @staticmethod
     def _relative_improvement(orig: float, new: float) -> float:
