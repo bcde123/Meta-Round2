@@ -245,7 +245,7 @@ def root():
         "description": "OpenEnv RL environment: refactor a Python codebase while obeying 150 cascading engineering rules",
         "hackathon": "Meta PyTorch OpenEnv Hackathon",
         "reward_formula": "R = (W_test × S_test) × (1/N × Σ C_i) - P_efficiency - P_hack",
-        "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "base_model": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
         "training_method": "GRPO (Group Relative Policy Optimization) via Unsloth",
         "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter",
         "gpu_available": gpu_available,
@@ -323,7 +323,7 @@ async def infer(req: InferRequest):
                 "detail": "This Space runs on CPU. The 7B model requires GPU for inference.",
                 "alternatives": {
                     "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter",
-                    "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+                    "base_model": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
                     "instructions": "Load the adapter with peft and run inference on a GPU machine.",
                 },
                 "environment_endpoints_work": True,

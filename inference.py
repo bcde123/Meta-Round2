@@ -18,7 +18,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # ── Configuration ────────────────────────────────────────────────────────────
-BASE_MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct"
+BASE_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 MAX_SEQ_LENGTH = 4096
 
 # Adapter source: HuggingFace Hub repo OR local path
