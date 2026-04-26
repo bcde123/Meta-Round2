@@ -21,6 +21,9 @@ os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/torch_inductor"
 os.environ["USER"] = "huggingface"
 os.environ["TORCHINDUCTOR_DISABLE"] = "1"
 os.environ["LOGNAME"] = "huggingface"
+# Deadline-safe training mode: use compile-time Track C profiling inside the
+# reward function. The live env/dashboard can still use runtime profiling.
+os.environ.setdefault("GREEN_PROFILE_MODE", "compile")
 import re
 import json
 import random
@@ -61,10 +64,15 @@ MODEL_NAME = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
 STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md"))
 
-# ── Unsloth hyperparameters ───────────────────────────────────────────────────
-MAX_SEQ_LENGTH = 2048       # Smaller window → faster rollouts on 1.5B model
-LORA_RANK = 16              # Lower rank sufficient for 1.5B; faster convergence
-LOAD_IN_4BIT = True         # QLoRA – keeps VRAM low for more generations per step
+# ── Deadline-safe Unsloth hyperparameters ─────────────────────────────────────
+# Tuned for a final A100 Space run with ~1.5h left, including build/startup time.
+MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "1536"))
+LORA_RANK = int(os.getenv("LORA_RANK", "8"))
+TRAIN_MAX_STEPS = int(os.getenv("TRAIN_MAX_STEPS", "80"))
+TRAIN_NUM_EPISODES = int(os.getenv("TRAIN_NUM_EPISODES", "80"))
+TRAIN_NUM_GENERATIONS = int(os.getenv("TRAIN_NUM_GENERATIONS", "2"))
+MAX_COMPLETION_LENGTH = int(os.getenv("MAX_COMPLETION_LENGTH", "384"))
+LOAD_IN_4BIT = True         # QLoRA – keeps VRAM low for fast iterations
 GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
 
 # Auto-detect GPU capabilities:
@@ -382,14 +390,14 @@ def main():
         output_dir=output_dir,
         learning_rate=5e-6,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
-        max_steps=200,                  # More steps → better policy on small model
-        num_generations=4,              # 4 gens per step; faster iteration
-        max_completion_length=512,
-        max_prompt_length=MAX_SEQ_LENGTH - 512,
+        gradient_accumulation_steps=2,
+        max_steps=TRAIN_MAX_STEPS,
+        num_generations=TRAIN_NUM_GENERATIONS,
+        max_completion_length=MAX_COMPLETION_LENGTH,
+        max_prompt_length=MAX_SEQ_LENGTH - MAX_COMPLETION_LENGTH,
         temperature=0.9,
-        save_steps=50,
-        logging_steps=10,
+        save_steps=40,
+        logging_steps=5,
         bf16=USE_BF16,
         fp16=not USE_BF16,
         report_to="none",
@@ -397,7 +405,7 @@ def main():
     training_args = GRPOConfig(**grpo_kwargs)
 
     # ── 4. Train ───────────────────────────────────────────────────────────────
-    train_dataset = create_training_dataset(num_episodes=200)
+    train_dataset = create_training_dataset(num_episodes=TRAIN_NUM_EPISODES)
     trainer = GRPOTrainer(
         model=model,
         reward_funcs=reward_function,

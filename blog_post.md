@@ -101,7 +101,7 @@ Why this design matters:
 ![RL training pipeline — one episode](assets/architecture_pipeline.png)
 *One episode in the GRPO loop: the agent gets a 70-step budget per episode. At each step it picks an action (`read_file`, `edit_file`, `check_compliance`, `run_tests`, `finish`), the env transitions to a new state, the Evaluation Engine emits a reward via the Rubric, and the policy is updated.*
 
-We use Qwen-2.5-Coder-**1.5B** with QLoRA (`r=16`) and Hugging Face TRL's GRPO trainer, accelerated by Unsloth. The 1.5B choice was deliberate after [explicit hackathon advice](https://docs.google.com/document/d/1Odznuzwtb1ecDOm2t6ToZd4MuMXXfO6vWUGcxbC6mFs) — small models + fast iteration > heroic 7B-on-A100 attempts.
+We use Qwen-2.5-Coder-**1.5B** with QLoRA (`r=8` for the final deadline-safe run) and Hugging Face TRL's GRPO trainer, accelerated by Unsloth. The 1.5B choice was deliberate after explicit hackathon advice — small models + fast iteration > heroic 7B-on-A100 attempts.
 
 ```
 Training step (single A100):
@@ -114,7 +114,7 @@ Training step (single A100):
   5. Curriculum scales corruption intensity if mean reward > threshold.
 ```
 
-200 steps × 4 generations × ~25s/step ≈ ~30 minutes on a single A100. Cheap, reproducible, judge-rerunnable.
+For the final submission window, the default run is intentionally small: **80 steps × 2 generations × 80 episodes**, using compile-mode green profiling during training. This keeps the full HF A100 build + train + startup flow inside the remaining deadline, while still producing reward/loss curves.
 
 ---
 
