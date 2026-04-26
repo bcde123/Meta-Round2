@@ -133,7 +133,7 @@ FAST_INFERENCE, USE_BF16 = _detect_gpu_caps()
 
 
 def parse_completions(completion_text):
-    pattern = r'<file name="(.*?)">(.*?)</file>'
+    pattern = r'<file name=["\'](.*?)["\']>(.*?)</file>'
     matches = re.findall(pattern, completion_text, flags=re.DOTALL)
     edits = {}
     for filename, content in matches:
