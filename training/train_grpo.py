@@ -420,23 +420,11 @@ def main():
     torch.cuda.empty_cache()
     trainer.train()
 
-    # ── 5. Save adapter & Push to Hub ─────────────────────────────────────────
+    # ── 5. Save adapter ───────────────────────────────────────────────────────
     final_path = os.path.join(output_dir, "final_adapter")
     model.save_pretrained(final_path)
     tokenizer.save_pretrained(final_path)
     print(f"✅ Training complete! Adapter saved to {final_path}")
-    
-    hf_token = os.getenv("HF_TOKEN")
-    if hf_token:
-        print("🚀 Pushing adapter to Hugging Face Hub...")
-        try:
-            model.push_to_hub("s123hree/constrained-refactor-adapter", token=hf_token)
-            tokenizer.push_to_hub("s123hree/constrained-refactor-adapter", token=hf_token)
-            print("✅ Successfully pushed to Hub!")
-        except Exception as e:
-            print(f"❌ Failed to push to Hub: {e}")
-    else:
-        print("⚠️ HF_TOKEN not found, skipping Hub upload.")
 
 if __name__ == "__main__":
     main()
