@@ -445,5 +445,25 @@ def main():
     tokenizer.save_pretrained(final_path)
     print(f"✅ Training complete! Adapter saved to {final_path}")
 
+    # ── 6. Upload adapter to HF Hub (so it survives container restarts) ───────
+    hub_repo = os.getenv("HF_ADAPTER_REPO", "shreeyanshi03/constrained-refactor-adapter")
+    hf_token = os.getenv("HF_TOKEN", None)
+    if hub_repo and hf_token:
+        try:
+            from huggingface_hub import HfApi
+            api = HfApi(token=hf_token)
+            api.create_repo(repo_id=hub_repo, repo_type="model", exist_ok=True, private=False)
+            api.upload_folder(
+                folder_path=final_path,
+                repo_id=hub_repo,
+                repo_type="model",
+                commit_message="GRPO training run complete — adapter upload",
+            )
+            print(f"✅ Adapter uploaded to https://huggingface.co/{hub_repo}")
+        except Exception as e:
+            print(f"⚠️  Hub upload failed (adapter still saved locally): {e}")
+    else:
+        print("ℹ️  HF_TOKEN or HF_ADAPTER_REPO not set — skipping Hub upload")
+
 if __name__ == "__main__":
     main()
