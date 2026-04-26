@@ -77,10 +77,10 @@ GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
 
 # Auto-detect GPU capabilities:
 #   - bf16 requires Ampere+ (compute >= 8.0); T4 must use fp16
-#   - vLLM is DISABLED: v0.19.1 has a graph compilation bug with BitsAndBytes
-#     ("Tried to erase Node size_3") that crashes on ALL GPUs (T4, A100, H100).
-#     Unsloth's training speedups still work; only generation rollouts fall back
-#     to HuggingFace generate() which is slightly slower but reliable.
+#   - vLLM is not installed/used in the deadline build. It caused dependency
+#     resolver bloat and `vllm.lora.models` import failures with recent wheels.
+#     Unsloth's core training speedups still work; generation falls back to
+#     HuggingFace generate(), which is slower but reliable.
 def _detect_gpu_caps():
     fast_inference = False  # vLLM disabled due to v0.19.1 bug
     use_bf16 = False
@@ -91,7 +91,7 @@ def _detect_gpu_caps():
             gpu_name = torch.cuda.get_device_name(0)
             if cc[0] >= 8:
                 use_bf16 = True
-                print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → bf16 ON, vLLM OFF (v0.19.1 bug)")
+                print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → bf16 ON, vLLM OFF")
             else:
                 print(f"  {gpu_name} (compute {cc[0]}.{cc[1]}) → fp16 ON, vLLM OFF")
     except Exception:
