@@ -32,6 +32,7 @@ ENV HF_HUB_ENABLE_HF_TRANSFER=1
 # Hugging Face Spaces runs as UID 1000 without a corresponding /etc/passwd entry.
 # Torch Inductor tries to get the username for caching.
 ENV TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor
+ENV TORCHINDUCTOR_DISABLE=1
 ENV USER=huggingface
 ENV LOGNAME=huggingface
 
