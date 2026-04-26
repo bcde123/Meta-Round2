@@ -458,6 +458,44 @@ def main():
     tokenizer.save_pretrained(final_path)
     print(f"✅ Training complete! Adapter saved to {final_path}")
 
+    # ── 5b. Save loss + reward plots (evidence for hackathon submission) ──────
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        history = trainer.state.log_history or []
+        steps = [h.get("step") for h in history if "loss" in h or "reward" in h]
+        losses = [h.get("loss") for h in history if "loss" in h]
+        rewards = [h.get("reward") for h in history if "reward" in h]
+
+        # Persist raw history for reproducibility
+        assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../assets"))
+        os.makedirs(assets_dir, exist_ok=True)
+        with open(os.path.join(assets_dir, "log_history.json"), "w") as f:
+            json.dump(history, f, indent=2, default=str)
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        if losses:
+            axes[0].plot(losses, color="#d62728")
+            axes[0].set_title("Training Loss")
+            axes[0].set_xlabel("logging step")
+            axes[0].set_ylabel("loss")
+            axes[0].grid(True, alpha=0.3)
+        if rewards:
+            axes[1].plot(rewards, color="#2ca02c")
+            axes[1].set_title("Episode Reward")
+            axes[1].set_xlabel("logging step")
+            axes[1].set_ylabel("reward")
+            axes[1].grid(True, alpha=0.3)
+        plt.tight_layout()
+        plot_path = os.path.join(assets_dir, "training_curves.png")
+        plt.savefig(plot_path, dpi=150)
+        plt.close(fig)
+        print(f"📊 Saved training plots to {plot_path}")
+    except Exception as e:
+        print(f"⚠️  Plot generation failed: {e}")
+
     # ── 6. Upload adapter to HF Hub (so it survives container restarts) ───────
     hub_repo = os.getenv("HF_ADAPTER_REPO", "shreeyanshi03/constrained-refactor-adapter-1.5b")
     hf_token = os.getenv("HF_TOKEN", None)
@@ -472,7 +510,16 @@ def main():
                 repo_type="model",
                 commit_message="GRPO training run complete — adapter upload",
             )
-            print(f"✅ Adapter uploaded to https://huggingface.co/{hub_repo}")
+            assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../assets"))
+            if os.path.isdir(assets_dir):
+                api.upload_folder(
+                    folder_path=assets_dir,
+                    path_in_repo="assets",
+                    repo_id=hub_repo,
+                    repo_type="model",
+                    commit_message="upload training plots",
+                )
+            print(f"✅ Adapter + plots uploaded to https://huggingface.co/{hub_repo}")
         except Exception as e:
             print(f"⚠️  Hub upload failed (adapter still saved locally): {e}")
     else:

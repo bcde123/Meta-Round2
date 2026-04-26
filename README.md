@@ -9,13 +9,24 @@ pinned: false
 
 # Constrained Refactor Gauntlet
 
-An OpenEnv RL environment where an agent refactors a legacy Python codebase while obeying **150 cascading engineering rules**.
+An **OpenEnv**-compatible RL environment where an agent refactors a legacy Python codebase while obeying **150 cascading engineering rules**.
 
 $$R_{total} = (W_{test} \cdot S_{test}) \times \left( \frac{1}{N} \sum_{i=1}^{N} C_i \right) - P_{efficiency} - P_{hack}$$
 
+## 🔗 Submission Links
+
+| Resource | Link |
+|----------|------|
+| 🤗 **HF Space (live env)** | [s123hree/constrained-refactor-gauntlet-a100](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100) |
+| 🤗 **Trained Adapter** | [shreeyanshi03/constrained-refactor-adapter-1.5b](https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b) |
+| 📓 **Colab Training Notebook** | [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb) |
+| 📝 **Blog Post (writeup)** | _TODO: paste HF blog URL here_ |
+| 🎥 **2-min Video Demo** | _TODO: paste YouTube URL here_ |
+| 📊 **Training Plots** | [`assets/training_curves.png`](assets/training_curves.png) |
+
 ## 🎯 Hackathon
 
-Meta PyTorch OpenEnv Hackathon — Long‑Horizon Planning & Instruction Following
+**OpenEnv India Hackathon 2026** — Meta PyTorch — Long-Horizon Planning & Instruction Following
 
 ## 🏗️ Architecture Overview
 
@@ -141,6 +152,45 @@ python inference.py   # loads the saved adapter and starts a demo loop
 - Add new corruptions to `EpisodeGenerator` as separate methods.
 - Extend `ENGINEERING_STANDARDS.md` with additional rule definitions – the compliance checker will pick them up automatically.
 - Open a PR with a clear description and update the changelog.
+
+## 📊 Results
+
+We trained **Qwen2.5-Coder-1.5B-Instruct** with QLoRA (`r=16`) using GRPO on a single A100-80GB.
+
+| Metric | Value |
+|--------|-------|
+| Base model | Qwen2.5-Coder-1.5B-Instruct |
+| LoRA rank / alpha | 16 / 16 |
+| Training steps | 200 |
+| Generations per step | 4 |
+| Hardware | NVIDIA A100-SXM4-80GB |
+| Wall-clock training time | ~25 min |
+
+**Training curves** (loss ↓, reward ↑):
+
+![Training curves](assets/training_curves.png)
+
+| | Before training | After training |
+|--|---------------|---------------|
+| Mean episode reward | _baseline_ | _final_ |
+| Test-pass rate | _baseline_ | _final_ |
+| Compliance score | _baseline_ | _final_ |
+| Avg. steps to solve | _baseline_ | _final_ |
+
+> Numbers will be filled in once the training run completes. Plots in `assets/` are saved automatically by `training/train_grpo.py` from `trainer.state.log_history`.
+
+Reproduce in Colab: [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb).
+
+## 🧩 OpenEnv Compatibility
+
+This environment follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec:
+
+- **Manifest**: [`openenv.yaml`](openenv.yaml)
+- **Standard endpoints**: `POST /reset`, `POST /step`, `GET /health`
+- **Observation space**: `{ files: dict, violation_report: dict, steps_remaining: int, curriculum_level: int }`
+- **Action space**: tools `[read_file, edit_file, run_tests, check_compliance]`
+- **Reward range**: `[0.0, 1.0]`
+- **Max episode length**: 70 steps
 
 ## 📜 License
 
