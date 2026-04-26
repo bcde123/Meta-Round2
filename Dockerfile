@@ -90,9 +90,22 @@ ENV WANDB_DISABLED=true
 
 # Fix for KeyError: 'getpwuid(): uid not found: 1000'
 # Hugging Face Spaces runs as UID 1000 without a corresponding /etc/passwd entry.
-# Create a dummy passwd entry so getpass.getuser() works.
-RUN echo "huggingface:x:1000:1000:HuggingFace user:/home/huggingface:/bin/sh" >> /etc/passwd
-# Torch Inductor tries to get the username for caching.
+# Create a dummy passwd entry AND a writable home dir. Without the home dir,
+# triton's autotune cache (/home/huggingface/.triton/cache) blows up at
+# `os.makedirs(...)` time during `import bitsandbytes` → which trips
+# `from .nn.triton_based_modules import ...` → which trips
+# `@triton.autotune(...)` → PermissionError. That cascades into
+# `import unsloth` failing through transformers.integrations.bitsandbytes.
+RUN echo "huggingface:x:1000:1000:HuggingFace user:/home/huggingface:/bin/sh" >> /etc/passwd \
+    && mkdir -p /home/huggingface/.triton/cache /home/huggingface/.cache \
+    && chmod -R 1777 /home/huggingface
+# Make every cache-bearing tool point at a writable place explicitly. We can't
+# rely on `~` resolution alone because `pwd.getpwuid()` and `expanduser('~')`
+# both still return `/home/huggingface` on HF Spaces; setting HOME wins over
+# both, and individual *_CACHE_DIR vars override even that.
+ENV HOME=/home/huggingface
+ENV XDG_CACHE_HOME=/tmp/xdg_cache
+ENV TRITON_CACHE_DIR=/tmp/triton_cache
 ENV TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor
 ENV TORCHINDUCTOR_DISABLE=1
 ENV USER=huggingface
@@ -106,7 +119,7 @@ ENV LOGNAME=huggingface
 RUN printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -u' \
-    'mkdir -p /tmp/torch_inductor /tmp/hf_home' \
+    'mkdir -p /tmp/torch_inductor /tmp/hf_home /tmp/triton_cache /tmp/xdg_cache' \
     'echo "[entrypoint] starting GRPO training in background"' \
     '(' \
     '  python -u training/train_grpo.py 2>&1 | sed -u "s/^/[train] /"' \
