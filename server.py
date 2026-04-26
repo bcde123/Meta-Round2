@@ -34,8 +34,8 @@ from environment.track_c import GreenCodeEvaluator
 from environment.co2_calculator import generate_dashboard_data
 
 app = FastAPI(
-    title="Constrained Refactor Gauntlet",
-    description="OpenEnv RL environment for multi-file code refactoring with 150 cascading rules",
+    title="Green-Code Optimizer",
+    description="OpenEnv RL environment that trains a code agent to refactor Python for energy efficiency (CPU + memory) — with a CO₂-savings dashboard.",
     version="1.0.0",
 )
 
@@ -241,24 +241,38 @@ def root():
     """Project info page."""
     gpu_available = torch.cuda.is_available()
     return {
-        "project": "Constrained Refactor Gauntlet",
-        "description": "OpenEnv RL environment: refactor a Python codebase while obeying 150 cascading engineering rules",
-        "hackathon": "Meta PyTorch OpenEnv Hackathon",
-        "reward_formula": "R = (W_test × S_test) × (1/N × Σ C_i) - P_efficiency - P_hack",
+        "project": "Green-Code Optimizer",
+        "tagline": "RL agent that refactors Python for energy efficiency, not readability.",
+        "description": (
+            "Most refactoring agents optimize for readability. This one minimizes "
+            "CPU cycles and peak memory while preserving program logic. A graphlet "
+            "analyzer models control-flow patterns (nested loops, expensive calls, "
+            "deep branching) so the agent learns which structures are 'expensive' "
+            "and swaps them for 'cheap' alternatives. CPU-time savings are converted "
+            "into real-world CO₂ savings (kg/year, tree-equivalents, car-km)."
+        ),
+        "hackathon": "OpenEnv India Hackathon 2026 — Meta PyTorch",
+        "theme": "Green AI — sustainable code via reinforcement learning",
+        "reward_formula": "R = S_test × (0.70·green_score + 0.30·compliance_score) − P_efficiency",
+        "green_score_components": {
+            "graphlet_score": "Avoidance of expensive control-flow patterns",
+            "cpu_improvement": "Relative CPU-time reduction vs. original",
+            "memory_improvement": "Relative peak-memory reduction vs. original",
+        },
         "base_model": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
         "training_method": "GRPO (Group Relative Policy Optimization) via Unsloth",
-        "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter",
+        "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b",
         "gpu_available": gpu_available,
         "inference_available": gpu_available,
         "endpoints": {
             "GET /": "This page — project info",
             "GET /health": "Health check",
-            "GET /health/green": "Track C green-code subsystem status",
+            "GET /health/green": "Green-code subsystem status",
             "GET /docs": "Interactive API documentation (Swagger UI)",
-            "POST /reset": "Start a new episode",
-            "POST /step": "Take an action in the environment",
-            "POST /infer": "Run trained agent on an observation (requires GPU)",
-            "GET /dashboard/co2/{episode_id}": "CO2 savings dashboard for an episode",
+            "POST /reset": "Start a new episode (corrupted codebase + active rules)",
+            "POST /step": "Submit an edit — receive new state + reward",
+            "POST /infer": "Run the trained agent (requires GPU)",
+            "GET /dashboard/co2/{episode_id}": "CO₂-savings dashboard (kg/year, trees, car-km)",
         },
     }
 
@@ -269,7 +283,7 @@ def health():
     return {
         "status": "ok",
         "version": "1.0.0",
-        "environment": "constrained-refactor-gauntlet",
+        "environment": "green-code-optimizer",
         "gpu_available": gpu_available,
         "inference_ready": gpu_available,
         "endpoints": ["/reset", "/step", "/infer", "/health", "/health/green", "/dashboard/co2/{episode_id}"],

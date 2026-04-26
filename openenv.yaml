@@ -1,6 +1,13 @@
-name: constrained-refactor-gauntlet
+name: green-code-optimizer
 version: "1.0.0"
-description: "RL environment where an agent refactors a legacy Python codebase while obeying 150 cascading engineering rules. Reward = CodeScore × ComplianceScore."
+description: >-
+  OpenEnv RL environment that trains a code agent to refactor Python for energy
+  efficiency. The agent is rewarded for reducing CPU cycles and peak memory
+  while preserving program logic. A graphlet analyzer represents control-flow
+  patterns (nested loops, expensive calls, deep branching) so the agent learns
+  which structures are "expensive" and swaps them for "cheap" alternatives. A
+  CO2-savings dashboard converts the reduction into real-world impact (kg CO2
+  saved per year, tree-equivalents, car-km equivalents).
 endpoints:
   reset: POST /reset
   step: POST /step
@@ -12,5 +19,22 @@ observation_space:
   curriculum_level: int
 action_space:
   tools: [read_file, edit_file, run_tests, check_compliance]
-reward_range: [0.0, 1.0]
+reward:
+  formula: "R = S_test × (0.70·green_score + 0.30·compliance_score) − P_efficiency"
+  components:
+    green_score:
+      weight: 0.70
+      sub_components:
+        graphlet_score: "Penalty-free fraction of detected costly control-flow graphlets"
+        cpu_improvement: "Relative CPU-time reduction vs. original code"
+        memory_improvement: "Relative peak-memory reduction vs. original code"
+    compliance_score:
+      weight: 0.30
+      description: "Fraction of active engineering rules satisfied (correctness gate)"
+    test_gate:
+      type: binary
+      description: "Multiplier ∈ {0, 1}: zero if any file fails to parse/run"
+    efficiency_penalty:
+      per_edit: 0.01
+reward_range: [-1.0, 1.0]
 max_steps: 70

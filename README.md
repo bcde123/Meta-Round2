@@ -1,17 +1,117 @@
 ---
-title: Constrained Refactor Gauntlet
-emoji: 🔧
-colorFrom: blue
-colorTo: purple
+title: Green-Code Optimizer
+emoji: 🌱
+colorFrom: green
+colorTo: blue
 sdk: docker
-pinned: false
+pinned: true
 ---
 
-# Constrained Refactor Gauntlet
+# 🌱 Green-Code Optimizer
 
-An **OpenEnv**-compatible RL environment where an agent refactors a legacy Python codebase while obeying **150 cascading engineering rules**.
+> An RL agent that refactors Python code for **energy efficiency**, not readability — and tells you exactly how much CO₂ it saves.
 
-$$R_{total} = (W_{test} \cdot S_{test}) \times \left( \frac{1}{N} \sum_{i=1}^{N} C_i \right) - P_{efficiency} - P_{hack}$$
+[![HF Space](https://img.shields.io/badge/🤗_Space-Live-blue)](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100)
+[![Adapter](https://img.shields.io/badge/🤗_Adapter-Qwen2.5--Coder--1.5B-orange)](https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b)
+[![OpenEnv](https://img.shields.io/badge/OpenEnv-compatible-success)](https://github.com/meta-pytorch/openenv)
+
+---
+
+## 🎯 The Problem
+
+AI workloads are projected to consume **2–4 % of global electricity by 2030**. Most of that goes to *training*, but **inference at scale** — the same algorithms running millions of times a day in production — is the silent giant. A single inefficient nested loop in a hot path, replicated across millions of executions, can add up to *real* CO₂.
+
+Meanwhile, almost every existing code-refactoring tool optimises for **readability** (line length, naming, type hints). **None of them refactor for energy.**
+
+> **What if we trained an RL agent whose only goal was to make Python *cheaper to run* — measured in CPU cycles, memory footprint, and ultimately grams of CO₂?**
+
+That's the Green-Code Optimizer.
+
+---
+
+## 💡 The Pitch
+
+| Existing refactoring tools | Green-Code Optimizer |
+|----------------------------|----------------------|
+| Optimise for readability   | **Optimise for energy** |
+| Style / naming / lint      | **CPU time + peak memory** |
+| Subjective rules            | **Measurable, runtime-grounded reward** |
+| Outputs cleaner code        | **Outputs cheaper code + a CO₂ dashboard** |
+
+The agent receives a **negative reward for high peak memory and high execution time**, and a positive reward for the *opposite*. It uses **graphlet analysis** to represent the program's control-flow structure, so it learns which structural patterns (e.g. nested loops, function calls inside loops, deep branching) are expensive — and swaps them for cheap alternatives (e.g. vectorised ops, comprehensions, hoisted invariants).
+
+---
+
+## ⚙️ How It Works
+
+```mermaid
+flowchart LR
+    A["Corrupted /<br/>energy-inefficient<br/>Python codebase"] --> B[Episode Generator]
+    B --> C["RL Agent<br/>(Qwen-1.5B + LoRA)"]
+    C -->|edits| D[Updated codebase]
+    D --> E1[Graphlet Analyzer]
+    D --> E2[CPU + Memory Profiler]
+    D --> E3[Compliance / Test Gate]
+    E1 --> R[GRPO Reward]
+    E2 --> R
+    E3 --> R
+    R -->|policy update| C
+    D --> F["CO₂ Dashboard<br/>kg/year · trees · car-km"]
+```
+
+### 1. Episode Generation
+Each episode loads a real Python codebase and applies energy-degrading corruptions: replacing vectorised ops with explicit nested loops, inlining hoistable computations, expanding comprehensions into for-loops, etc. The agent's job is to *undo* them.
+
+### 2. Graphlet Analysis (`environment/graphlet_analyzer.py`)
+Parses each Python file into an AST and detects 4 classes of expensive control-flow graphlets:
+
+| Graphlet | Cost weight | Example |
+|----------|-------------|---------|
+| `NestedLoop` | 3.0 | `for i: for j: ...` |
+| `LoopWithCall` | 1.5 | `for x: f(x)` |
+| `DeepBranch` | 2.0 | `if … if … if …` (≥ 3 deep) |
+| `RepeatedComprehension` | 1.0 | Multiple list-comps in one fn |
+
+Lower total cost → higher graphlet score.
+
+### 3. Runtime Profiling (`environment/track_c.py`)
+Each candidate refactor is **actually executed** in a sandbox: CPU time via `timeit`, peak memory via `tracemalloc`. Improvements vs. the original are clamped to `[0, 1]`.
+
+### 4. Reward (`training/train_grpo.py`)
+```
+R = S_test × (0.70 · green_score + 0.30 · compliance_score) − P_efficiency
+```
+- **`S_test ∈ {0, 1}`** — hard gate: if the refactored code doesn't parse/run, the agent gets **0**. No reward for "cleaner" code that doesn't work.
+- **`green_score`** (70 %) — composite of `graphlet_score`, `cpu_improvement`, `memory_improvement`.
+- **`compliance_score`** (30 %) — secondary correctness signal from 150 engineering rules.
+- **`P_efficiency`** — `0.01` per file edited; pushes the agent toward *minimal, surgical* edits.
+
+### 5. CO₂ Dashboard (`environment/co2_calculator.py`)
+CPU-time savings × CPU TDP × grid carbon intensity → kg CO₂ saved per year, with real-world equivalents:
+
+```json
+{
+  "co2_savings": {
+    "grams_per_day": 24.5,
+    "kg_per_year": 8.94,
+    "equivalent_trees": 0.43,
+    "equivalent_car_km": 74.5
+  }
+}
+```
+
+Visit `GET /dashboard/co2/{episode_id}` after any episode for the full breakdown.
+
+---
+
+## 🏆 Why This Wins
+
+1. **It addresses a Green-AI problem with a Green-AI solution.** Most "Green AI" papers stop at *measuring* energy. This project *trains an agent to reduce it.*
+2. **The reward is grounded in real measurements**, not subjective rules. The agent can't game it without making the code actually faster.
+3. **The CO₂ dashboard makes impact tangible** — it's the difference between "the refactor saves 12 ms" and "the refactor saves 9 kg of CO₂ a year, the equivalent of 75 km of car travel."
+4. **Fully OpenEnv-compatible**, fully reproducible in Colab, runs on any machine with an A100.
+
+---
 
 ## 🔗 Submission Links
 
@@ -24,138 +124,65 @@ $$R_{total} = (W_{test} \cdot S_{test}) \times \left( \frac{1}{N} \sum_{i=1}^{N}
 | 🎥 **2-min Video Demo** | _TODO: paste YouTube URL here_ |
 | 📊 **Training Plots** | [`assets/training_curves.png`](assets/training_curves.png) |
 
-## 🎯 Hackathon
+---
 
-**OpenEnv India Hackathon 2026** — Meta PyTorch — Long-Horizon Planning & Instruction Following
+## 🧩 OpenEnv Compatibility
 
-## 🏗️ Architecture Overview
+This env follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec:
 
-```mermaid
-flowchart TD
-    subgraph Env[Environment Server]
-        Reset["/reset"] --> EpisodeGen[Episode Generator]
-        EpisodeGen --> Corrupt[Corruption Pipeline]
-        Corrupt --> State[Initial State]
-        State --> Step[/step]
-        Step --> Eval[Evaluation Engine]
-        Eval --> Reward[Reward Function]
-        Reward --> Step
-    end
-    subgraph Train[Training Pipeline]
-        Model[(Base Model\nQwen/Qwen2.5‑Coder‑7B‑Instruct)] --> LoRA[LoRA Adapters]
-        LoRA --> GRPO[GRPO Trainer]
-        GRPO --> Dataset[Generated Episodes]
-        Dataset --> GRPO
-    end
-    subgraph Eval[Evaluation Tracks]
-        TrackA[Track A – Code Quality]
-        TrackB[Track B – Compliance]
-        TrackC[Track C – Green‑Code]
-        Reward --> TrackA & TrackB & TrackC
-    end
-    Env --> Train
-    Train --> Infer[/infer]
+- **Manifest:** [`openenv.yaml`](openenv.yaml)
+- **Endpoints:** `POST /reset`, `POST /step`, `GET /health`
+- **Observation space:** `{ files, violation_report, steps_remaining, curriculum_level }`
+- **Action space:** `[read_file, edit_file, run_tests, check_compliance]`
+- **Reward range:** `[-1.0, 1.0]`
+- **Max episode length:** 70 steps
+
+---
+
+## 📚 API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Project info |
+| `/health` | GET | Health check |
+| `/health/green` | GET | Green-code subsystem status |
+| `/docs` | GET | Swagger UI |
+| `/reset` | POST | Start a new episode |
+| `/step` | POST | Submit an edit |
+| `/infer` | POST | Run trained agent (GPU) |
+| `/dashboard/co2/{episode_id}` | GET | **CO₂-savings dashboard** |
+
+---
+
+## 🚀 Quickstart
+
+### Run the env locally
+```bash
+git clone https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100
+cd constrained-refactor-gauntlet-a100
+pip install -r requirements.txt
+uvicorn server:app --host 0.0.0.0 --port 7860
 ```
 
-### Core Components
+### Reproduce training (Colab, A100)
+Open [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb) → run all cells → ~25 min on A100.
 
-- **Episode Generator (`environment/episode_generator.py`)** – Loads a clean codebase, applies a random subset of corruptions (circular imports, cryptic renames, dead code, hard‑coded secrets, etc.), and produces the initial episode state together with an active set of engineering rules. Difficulty is scaled via a `CurriculumManager` based on recent agent performance.
-- **Curriculum Manager** – Tracks rolling reward history (last 150 episodes) and escalates rule count (up to 150) once the agent consistently exceeds a 0.7 success threshold.
-- **FastAPI Server (`server.py`)** – Exposes a standard RL interface:
-  - `GET /` – Project info
-  - `GET /health` – Health check
-  - `POST /reset` – Start a new episode
-  - `POST /step` – Submit an action (XML‑formatted file edits)
-  - `POST /infer` – Run the trained agent on the current state (GPU required)
-  - `GET /dashboard/co2/{episode_id}` – Visualise CO₂‑savings from Track C
-- **Evaluation Engine** – Implements three orthogonal tracks that feed the final reward:
-  - **Track A – Code Quality** – Fast AST‑based lint, cyclomatic‑complexity, module‑size, doc‑string and type‑hint coverage.
-  - **Track B – Compliance** – Checks against the 150 engineering standards defined in `ENGINEERING_STANDARDS.md`.
-  - **Track C – Green‑Code** – Graphlet‑analysis + CPU/memory profiling to estimate energy‑efficiency and translate it into a CO₂‑saving score.
-- **Training Pipeline (`training/train_grpo.py`)** – Uses **Unsloth** to load the base model with 4‑bit Quant‑LLM (QLoRA) and wraps it with LoRA adapters. Episodes are generated on‑the‑fly, the model produces several completions per prompt, and the custom `reward_function` scores each completion using the multiplicative formula (plus a formatting bonus). GRPO then performs a relative‑policy update.
-- **Inference (`inference.py`)** – Loads the final LoRA adapter, receives the current episode state via `/infer`, and returns the best edit payload.
-
-### Reward Components
-
-| Component | Definition | Verification |
-|-----------|------------|-------------|
-| **Test Score (S_test)** | Does the refactored code still function correctly? | Binary gate: `1.0` if all files parse & tests pass, `0.0` for any failure. |
-| **Compliance Score (C_i)** | Did the model follow the active engineering rules? | Per‑rule AST parsing to verify exact structural constraints (70% rule‑engine + 30% direct AST). |
-| **Efficiency Penalty (P_efficiency)** | Did the model take too many steps? | Subtracts `0.01` per step/edit to encourage direct, minimal fixes. |
-| **Hack Penalty (P_hack)** | Did the model try to cheat the environment? | Immediate `−1.0` reward and episode termination. |
-
-### Anti‑Cheating Layers
-
-1. **Binary Execution Gate** – If ANY file in the codebase has a `SyntaxError`, the test multiplier drops to **zero**. The agent gets no points for “clean” code that doesn’t compile.
-2. **Protected File Lockdown** – Test infrastructure files (`conftest.py`, `test_*.py`, `pytest.ini`, `setup.cfg`) cannot be edited. Any attempt triggers `P_hack = −1.0`.
-3. **Test Stub Detection** – Creating functions like `def test_all(): return True` is flagged as a hack via AST inspection.
-4. **Forbidden Names** – Specific naming conventions (e.g., `varelunixo`, `xhackbypass`) trigger immediate penalties.
-5. **Assertion Guard** – Deleting all `assert` statements from a file that originally contained them is treated as cheating.
-
-## 📚 API Endpoints
-
-| Endpoint                               | Method | Description                               |
-|----------------------------------------|--------|-------------------------------------------|
-| `/`                                    | GET    | Project information                       |
-| `/health`                              | GET    | Simple health check                       |
-| `/health/green`                        | GET    | Status of the Green‑Code subsystem        |
-| `/docs`                                | GET    | Swagger UI for the FastAPI server          |
-| `/reset`                               | POST   | Initialise a new episode                  |
-| `/step`                               | POST   | Submit an action (file edit)               |
-| `/infer`                               | POST   | Run the trained agent (GPU required)      |
-| `/dashboard/co2/{episode_id}`          | GET    | CO₂‑savings dashboard for an episode      |
-
-## ⚙️ Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/bcde123/Meta-Round2.git
-   cd Meta-Round2
-   ```
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Launch the environment server**
-   ```bash
-   uvicorn server:app --host 0.0.0.0 --port 7860
-   ```
-4. **(Optional) Train the model** – see the Training section below.
-
-## 🚀 Training
-
+### Pipeline sanity check (CPU only)
 ```bash
-# Verify the environment (CPU‑only quick check)
 python training/verify_pipeline.py
-
-# Full GRPO training (GPU, 200 episodes)
-python training/train_grpo.py
 ```
-The script:
-1. Generates a synthetic dataset of corrupted episodes.
-2. Loads the Qwen‑2.5‑Coder base model via Unsloth.
-3. Attaches LoRA adapters (`r=32`).
-4. Runs GRPO with a custom reward that combines Track A, B, C and a format‑bonus.
-5. Saves the final adapter to `grpo_output/final_adapter/`.
 
-## 📈 Inference & Evaluation
-
+### Smoke test the deployed Space
 ```bash
-python inference.py   # loads the saved adapter and starts a demo loop
+SPACE_URL=https://s123hree-constrained-refactor-gauntlet-a100.hf.space \
+  python test_deployment.py
 ```
-* The agent receives the current episode via the server, predicts the next edit, and the server applies it.
-* After the episode finishes, the three tracks emit a detailed score breakdown and, for Track C, a CO₂‑savings estimate displayed at `/dashboard/co2/<episode_id>`.
 
-## 🤝 Contributing
-
-- Follow the **PEP‑8** style guide and keep docstrings.
-- Add new corruptions to `EpisodeGenerator` as separate methods.
-- Extend `ENGINEERING_STANDARDS.md` with additional rule definitions – the compliance checker will pick them up automatically.
-- Open a PR with a clear description and update the changelog.
+---
 
 ## 📊 Results
 
-We trained **Qwen2.5-Coder-1.5B-Instruct** with QLoRA (`r=16`) using GRPO on a single A100-80GB.
+Trained **Qwen2.5-Coder-1.5B-Instruct** with QLoRA (`r=16`) using GRPO on a single A100-80GB.
 
 | Metric | Value |
 |--------|-------|
@@ -166,35 +193,34 @@ We trained **Qwen2.5-Coder-1.5B-Instruct** with QLoRA (`r=16`) using GRPO on a s
 | Hardware | NVIDIA A100-SXM4-80GB |
 | Wall-clock training time | ~25 min |
 
-**Training curves** (loss ↓, reward ↑):
+**Training curves (loss ↓, reward ↑):**
 
 ![Training curves](assets/training_curves.png)
 
 | | Before training | After training |
 |--|---------------|---------------|
 | Mean episode reward | _baseline_ | _final_ |
-| Test-pass rate | _baseline_ | _final_ |
-| Compliance score | _baseline_ | _final_ |
-| Avg. steps to solve | _baseline_ | _final_ |
+| Green score | _baseline_ | _final_ |
+| Avg. CPU improvement | _baseline_ | _final_ |
+| Avg. memory improvement | _baseline_ | _final_ |
+| **Avg. CO₂ saved / year (per refactor)** | _baseline_ | _final_ |
 
-> Numbers will be filled in once the training run completes. Plots in `assets/` are saved automatically by `training/train_grpo.py` from `trainer.state.log_history`.
+> Numbers will be filled in once the training run completes. Plots in `assets/` are saved automatically by `training/train_grpo.py`.
 
-Reproduce in Colab: [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb).
+---
 
-## 🧩 OpenEnv Compatibility
+## 🤝 Contributing
 
-This environment follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec:
+- Add new graphlet patterns to `environment/graphlet_analyzer.py` — the cost-weights are a dict you can extend.
+- Add new energy-degrading corruptions to `environment/episode_generator.py`.
+- Tune carbon constants (`CARBON_INTENSITY_G_PER_KWH`, `CPU_TDP_WATTS`) in `environment/co2_calculator.py` to match your region's grid.
 
-- **Manifest**: [`openenv.yaml`](openenv.yaml)
-- **Standard endpoints**: `POST /reset`, `POST /step`, `GET /health`
-- **Observation space**: `{ files: dict, violation_report: dict, steps_remaining: int, curriculum_level: int }`
-- **Action space**: tools `[read_file, edit_file, run_tests, check_compliance]`
-- **Reward range**: `[0.0, 1.0]`
-- **Max episode length**: 70 steps
+---
 
 ## 📜 License
 
-This project is released under the **Apache‑2.0 License**. Feel free to fork, modify, and submit improvements.
+Apache-2.0. Fork it, use it, save some carbon.
 
 ---
-*Created with ❤️ by the Meta‑Round 2 team.*
+
+*Built for the **OpenEnv India Hackathon 2026** — Meta PyTorch.*

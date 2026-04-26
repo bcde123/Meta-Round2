@@ -327,19 +327,24 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
                 f"mem={green_score.memory_improvement:.3f})"
             )
 
-            # ── MULTIPLICATIVE REWARD ─────────────────────────────────────────
-            # R = (W_test * S_test) × compliance - P_efficiency
-            # Green score is folded into compliance as a 15% blend
-            blended_compliance = 0.85 * compliance_score + 0.15 * score_c
+            # ── GREEN-FIRST REWARD ────────────────────────────────────────────
+            # Pitch: minimize CPU cycles + memory footprint without changing logic.
+            # Test pass is a hard gate (S_test ∈ {0,1}); green score is the
+            # dominant signal (70%); compliance is a secondary signal (30%).
+            #
+            # R = S_test × (0.70·green + 0.30·compliance) - P_efficiency + bonus
+            blended_quality = 0.70 * score_c + 0.30 * compliance_score
             reward = (
-                (TEST_WEIGHT * s_test) * blended_compliance
+                (TEST_WEIGHT * s_test) * blended_quality
                 - p_efficiency
                 + format_bonus
             )
 
             print(
                 f"    [Reward] #{idx}: S_test={s_test:.0f} | "
-                f"compliance={compliance_score:.3f} | green={score_c:.3f} | "
+                f"green={score_c:.3f} (graphlet={green_score.graphlet_score:.2f}, "
+                f"cpu={green_score.cpu_improvement:.2f}, mem={green_score.memory_improvement:.2f}) | "
+                f"compliance={compliance_score:.3f} | "
                 f"P_eff={p_efficiency:.3f} | R={reward:.4f}"
             )
             rewards.append(reward)
