@@ -4,7 +4,7 @@
 # profiler, and CO2-savings dashboard. The trained LoRA adapter is downloaded
 # from HuggingFace Hub at startup.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime AS base
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime AS base
 
 # System deps for building wheels
 RUN apt-get update && apt-get install -y --no-install-recommends \
