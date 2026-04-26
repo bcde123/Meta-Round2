@@ -1,5 +1,6 @@
 fastapi>=0.110.0
 uvicorn>=0.29.0
+openenv>=0.1.0
 openai>=1.23.0
 pytest>=8.0.0
 ruff>=0.4.0
@@ -19,3 +20,4 @@ unsloth
 vllm
 triton
 hf_transfer
+matplotlib>=3.7.0
