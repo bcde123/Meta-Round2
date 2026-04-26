@@ -61,9 +61,7 @@ graph TD
     F --> G
     G -->|Reward Signal| H[GRPO Trainer]
     H -->|Policy Updates| A
-
-
-
+```
 
 ## The Environment and The 70-Step Budget
 
@@ -129,6 +127,7 @@ flowchart LR
     GS & CPU & Mem --> Total[Total Green Score]
     Total --> Formula[15W CPU * 475g CO2/kWh]
     Formula --> Final[Grams of CO2 Saved]
+```
 
 Track C searches for computationally expensive subgraph patterns called graphlets (e.g., nested loops, deep branches) and penalises them. It then validates this by running the code through Python's timeit and tracemalloc to measure real CPU and memory improvements. Finally, this is translated into tangible metrics: real grams of CO₂ saved per year.
 
@@ -214,4 +213,3 @@ We scored completions as if they were single-shot edits. Future iterations need 
 Our repository is fully open-source and deployable in under five minutes. You can explore the interactive FastAPI docs, run episodes, and watch the live CO₂ savings dashboard calculate the environmental impact of your agent's refactoring.
 
 - **GitHub Repository**: [bcde123/Meta-Round2](https://github.com/bcde123/Meta-Round2)
-- **HuggingFace Adapter**: [shreeyanshi03/constrained-refactor-adapter](https://huggingface.co/shreeyanshi03/constrained-refactor-adapter)
