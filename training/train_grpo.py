@@ -1,3 +1,15 @@
+try:
+    import pwd
+    import os
+    pwd.getpwuid(os.getuid())
+except KeyError:
+    import pwd
+    def dummy_getpwuid(uid):
+        return ('huggingface', 'x', uid, 1000, 'HuggingFace user', '/home/huggingface', '/bin/sh')
+    pwd.getpwuid = dummy_getpwuid
+except ImportError:
+    pass
+
 import os
 import time
 import getpass
