@@ -90,7 +90,7 @@ from environment.rubrics import (
 
 print(f"  Rubric ready (openenv-core integration: {OPENENV_AVAILABLE})")
 
-MODEL_NAME = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
 STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md"))
 
@@ -98,9 +98,9 @@ STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../env
 # Tuned for a final A100 Space run with ~1.5h left, including build/startup time.
 MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "1536"))
 LORA_RANK = int(os.getenv("LORA_RANK", "8"))
-TRAIN_MAX_STEPS = int(os.getenv("TRAIN_MAX_STEPS", "80"))
-TRAIN_NUM_EPISODES = int(os.getenv("TRAIN_NUM_EPISODES", "80"))
-TRAIN_NUM_GENERATIONS = int(os.getenv("TRAIN_NUM_GENERATIONS", "2"))
+TRAIN_MAX_STEPS = int(os.getenv("TRAIN_MAX_STEPS", "200"))
+TRAIN_NUM_EPISODES = int(os.getenv("TRAIN_NUM_EPISODES", "200"))
+TRAIN_NUM_GENERATIONS = int(os.getenv("TRAIN_NUM_GENERATIONS", "4"))
 MAX_COMPLETION_LENGTH = int(os.getenv("MAX_COMPLETION_LENGTH", "384"))
 LOAD_IN_4BIT = True         # QLoRA – keeps VRAM low for fast iterations
 GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
