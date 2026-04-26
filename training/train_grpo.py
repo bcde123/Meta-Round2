@@ -51,14 +51,14 @@ from environment.episode_generator import EpisodeGenerator
 from environment.track_b import ComplianceChecker
 from environment.track_c import GreenCodeEvaluator
 
-MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
 STANDARDS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/ENGINEERING_STANDARDS.md"))
 
 # ── Unsloth hyperparameters ───────────────────────────────────────────────────
-MAX_SEQ_LENGTH = 4096       # Context window for training + generation
-LORA_RANK = 32              # LoRA rank (8, 16, 32, 64, 128)
-LOAD_IN_4BIT = True         # QLoRA – 4-bit quantization for ~60% VRAM reduction
+MAX_SEQ_LENGTH = 2048       # Smaller window → faster rollouts on 1.5B model
+LORA_RANK = 16              # Lower rank sufficient for 1.5B; faster convergence
+LOAD_IN_4BIT = True         # QLoRA – keeps VRAM low for more generations per step
 GPU_MEMORY_UTILIZATION = 0.6  # Fraction of GPU memory for vLLM inference engine
 
 # Auto-detect GPU capabilities:
@@ -425,14 +425,14 @@ def main():
         output_dir=output_dir,
         learning_rate=5e-6,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=2,  # Reduced from 4 to fit 8 generations
-        max_steps=100,
-        num_generations=8,              # 8 generations → more reward variance
+        gradient_accumulation_steps=4,
+        max_steps=200,                  # More steps → better policy on small model
+        num_generations=4,              # 4 gens per step; faster iteration
         max_completion_length=512,
         max_prompt_length=MAX_SEQ_LENGTH - 512,
-        temperature=1.0,                # Higher temperature → diverse completions
-        save_steps=25,
-        logging_steps=5,
+        temperature=0.9,
+        save_steps=50,
+        logging_steps=10,
         bf16=USE_BF16,
         fp16=not USE_BF16,
         report_to="none",
@@ -459,7 +459,7 @@ def main():
     print(f"✅ Training complete! Adapter saved to {final_path}")
 
     # ── 6. Upload adapter to HF Hub (so it survives container restarts) ───────
-    hub_repo = os.getenv("HF_ADAPTER_REPO", "shreeyanshi03/constrained-refactor-adapter")
+    hub_repo = os.getenv("HF_ADAPTER_REPO", "shreeyanshi03/constrained-refactor-adapter-1.5b")
     hf_token = os.getenv("HF_TOKEN", None)
     if hub_repo and hf_token:
         try:
