@@ -17,6 +17,36 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# ── CUDA library discovery for bitsandbytes ──────────────────────────────────
+# bitsandbytes loads libbitsandbytes_cuda<version>.so via ctypes.CDLL, which in
+# turn depends on libcudart.so.12 from CUDA 12.4. On HF Spaces the container
+# runs as UID 1000, so unsloth's runtime fallback `ldconfig /usr/lib64-nvidia`
+# fails with "Permission denied" → bnb fails to import → unsloth then dies on
+# `name 'bnb' is not defined`. Populate the loader cache at build time (where
+# we ARE root) and set LD_LIBRARY_PATH explicitly so bnb can dlopen its libs
+# without needing root at runtime.
+ENV LD_LIBRARY_PATH=/opt/conda/lib:/usr/local/cuda/lib64:/usr/lib64-nvidia
+# Force bitsandbytes to pick the CUDA 12.4 library that ships in the wheel,
+# matching the pytorch:2.6.0-cuda12.4 base image. Without this it tries to
+# auto-detect from `nvidia-smi`, which is flaky in non-interactive containers.
+ENV BNB_CUDA_VERSION=124
+RUN ldconfig
+
+# Smoke-test bitsandbytes during build. HF Spaces builders are CPU-only, so
+# `torch.cuda.is_available()` is False and bnb's auto-loader picks the CPU
+# library — that won't tell us whether the CUDA shim works on the GPU node.
+# Instead, dlopen libbitsandbytes_cuda124.so directly via ctypes: that does
+# NOT require a live GPU (no kernel launch happens), only that libcudart.so.12
+# and friends are reachable on LD_LIBRARY_PATH. If they're not, the build
+# fails here with the real error instead of producing the cryptic runtime
+# `name 'bnb' is not defined` we hit before.
+RUN python -c "import bitsandbytes, ctypes, pathlib; \
+pkg = pathlib.Path(bitsandbytes.__file__).parent; \
+so = pkg / 'libbitsandbytes_cuda124.so'; \
+print('dlopen', so); \
+ctypes.CDLL(str(so)); \
+print('bnb', bitsandbytes.__version__, 'CUDA shim loads OK')"
+
 # ── Copy application code ────────────────────────────────────────────────────
 COPY environment/ ./environment/
 COPY server.py .
