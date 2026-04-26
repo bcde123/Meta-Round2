@@ -2,7 +2,7 @@
 # Lightweight image for the OpenEnv-compliant environment + inference endpoint.
 # The trained LoRA adapter is downloaded from HuggingFace Hub at startup.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime AS base
+FROM python:3.11-slim AS base
 
 # System deps for building wheels
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # ── Install Python dependencies (two layers for caching) ─────────────────────
-COPY requirements-docker.txt .
-RUN pip install --no-cache-dir -r requirements-docker.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Copy application code ────────────────────────────────────────────────────
 COPY environment/ ./environment/
@@ -34,4 +34,4 @@ EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:7860/health || exit 1
 
-CMD uvicorn server:app --host 0.0.0.0 --port 7860 & python training/train_grpo.py
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860"]
