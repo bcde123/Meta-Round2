@@ -1,16 +1,18 @@
 import os
+import pwd
 import getpass
 
-# Patch getpass.getuser to avoid KeyError: 'getpwuid(): uid not found: 1000'
-try:
-    getpass.getuser()
-except KeyError:
-    import pwd
-    def dummy_getpwuid(uid):
-        return ('huggingface', 'x', uid, 1000, 'HuggingFace user', '/home/huggingface', '/bin/sh')
-    pwd.getpwuid = dummy_getpwuid
-except ImportError:
-    pass
+# Hard patch pwd.getpwuid to never raise KeyError for the current user
+def dummy_getpwuid(uid):
+    return ('huggingface', 'x', uid, 1000, 'HuggingFace user', '/home/huggingface', '/bin/sh')
+
+pwd.getpwuid = dummy_getpwuid
+
+# Hard patch getpass.getuser to immediately return the dummy user
+def dummy_getuser():
+    return "huggingface"
+
+getpass.getuser = dummy_getuser
 
 os.environ["TORCHINDUCTOR_DISABLE"] = "1"
 os.environ["LOGNAME"] = "huggingface"
