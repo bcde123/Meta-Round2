@@ -239,46 +239,59 @@ class EpisodeGenerator:
 
     def generate(self) -> dict:
         files = self._load_base_files()
-        
-        corruptions = [
-            self._inject_circular_imports,
-            self._rename_to_cryptic,
-            self._remove_type_hints,
-            self._bloat_with_dead_code,
-            self._hardcode_secrets,
-            self._break_import_paths,
-            self._remove_docstrings,
-            self._add_god_function,
-            # Energy-degrading corruptions — agent's primary target
-            self._explode_comprehension,
-            self._inline_invariant_in_loop,
-        ]
 
-        # Always inject at least one energy-degrading corruption so every
-        # episode has a green-code optimisation opportunity.
+        # Energy-degrading corruptions are the agent's primary target.
         energy_corruptions = [
             self._explode_comprehension,
             self._inline_invariant_in_loop,
             self._bloat_with_dead_code,
         ]
-        guaranteed = random.choice(energy_corruptions)
-        guaranteed(files)
+        readability_corruptions = [
+            self._inject_circular_imports,
+            self._rename_to_cryptic,
+            self._remove_type_hints,
+            self._hardcode_secrets,
+            self._break_import_paths,
+            self._remove_docstrings,
+            self._add_god_function,
+        ]
 
-        num_corruptions = random.randint(3, 7)
-        chosen_corruptions = random.sample(
-            [c for c in corruptions if c is not guaranteed],
-            num_corruptions,
-        )
-        
-        for corr in chosen_corruptions:
+        # ── Curriculum-driven corruption intensity ──────────────────────────
+        # Level 1: 1 energy + 1 readability corruption (gentle warmup).
+        # Level 2: 2 energy + 2 readability.
+        # Level 3: every energy corruption + 3 readability.
+        # Level 4: every energy corruption (applied twice each) + 4 readability.
+        level = self.curriculum.level
+        if level <= 1:
+            num_energy, num_readability, energy_passes = 1, 1, 1
+        elif level == 2:
+            num_energy, num_readability, energy_passes = 2, 2, 1
+        elif level == 3:
+            num_energy, num_readability, energy_passes = 3, 3, 1
+        else:
+            num_energy, num_readability, energy_passes = 3, 4, 2
+
+        chosen_energy = random.sample(energy_corruptions,
+                                      min(num_energy, len(energy_corruptions)))
+        for _ in range(energy_passes):
+            for corr in chosen_energy:
+                corr(files)
+
+        chosen_readability = random.sample(readability_corruptions,
+                                           min(num_readability,
+                                               len(readability_corruptions)))
+        for corr in chosen_readability:
             corr(files)
-            
-        num_rules = min(150, 20 + (self.curriculum.level - 1) * 40)
+
+        # Active rule budget also escalates with curriculum level
+        num_rules = min(150, 20 + (level - 1) * 40)
         rules_active = list(range(1, num_rules + 1))
-        
+
         return {
             "files": files,
             "rules_active": rules_active,
-            "curriculum_level": self.curriculum.level,
-            "episode_id": str(uuid.uuid4())
+            "curriculum_level": level,
+            "energy_corruptions_applied": [c.__name__ for c in chosen_energy],
+            "energy_passes": energy_passes,
+            "episode_id": str(uuid.uuid4()),
         }

@@ -15,3 +15,8 @@ venv.bak/
 grpo_output/
 grpo_output_verify/
 
+# Local scratch files (not tracked)
+blog_post.md
+image.png
+*.tmp.png
+
