@@ -15,6 +15,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["WANDB_DISABLED"] = "true"
 os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/torch_inductor"
 os.environ["USER"] = "huggingface"
+os.environ["TORCHINDUCTOR_DISABLE"] = "1"
 os.environ["LOGNAME"] = "huggingface"
 import re
 import json
