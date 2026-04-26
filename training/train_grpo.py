@@ -1,27 +1,19 @@
-try:
-    import pwd
-    import os
-    pwd.getpwuid(os.getuid())
-except KeyError:
-    import pwd
-    def dummy_getpwuid(uid):
-        return ('huggingface', 'x', uid, 1000, 'HuggingFace user', '/home/huggingface', '/bin/sh')
-    pwd.getpwuid = dummy_getpwuid
-except ImportError:
-    pass
-
 import os
-import time
+import pwd
 import getpass
+import time
 
-# Patch getpass.getuser to avoid KeyError: 'getpwuid(): uid not found: 1000'
-# in container environments like Hugging Face Spaces.
-try:
-    getpass.getuser()
-except KeyError:
-    def dummy_getuser():
-        return os.environ.get("USER", "huggingface")
-    getpass.getuser = dummy_getuser
+# Hard patch pwd.getpwuid to never raise KeyError for the current user
+def dummy_getpwuid(uid):
+    return ('huggingface', 'x', uid, 1000, 'HuggingFace user', '/home/huggingface', '/bin/sh')
+
+pwd.getpwuid = dummy_getpwuid
+
+# Hard patch getpass.getuser to immediately return the dummy user
+def dummy_getuser():
+    return "huggingface"
+
+getpass.getuser = dummy_getuser
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["WANDB_DISABLED"] = "true"
