@@ -84,6 +84,11 @@ ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ENV HF_HOME=/tmp/hf_home
 ENV TRANSFORMERS_CACHE=/tmp/hf_home
 ENV WANDB_DISABLED=true
+# Training checkpoints + plots: /app is not writable for UID 1000 on HF Spaces.
+ENV GRPO_OUTPUT_DIR=/tmp/grpo_output
+# unsloth_zoo defaults to cwd-relative "unsloth_compiled_cache" → PermissionError
+# when cwd is /app. Point compile artifacts at /tmp instead.
+ENV UNSLOTH_COMPILE_LOCATION=/tmp/unsloth_compiled_cache
 # Note: GREEN_PROFILE_MODE is intentionally NOT set here. Training picks
 # "compile" via os.environ.setdefault in train_grpo.py; the live API server
 # keeps the default "runtime" so /step and /dashboard/co2 do real profiling.
@@ -119,7 +124,7 @@ ENV LOGNAME=huggingface
 RUN printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -u' \
-    'mkdir -p /tmp/torch_inductor /tmp/hf_home /tmp/triton_cache /tmp/xdg_cache' \
+    'mkdir -p /tmp/torch_inductor /tmp/hf_home /tmp/triton_cache /tmp/xdg_cache /tmp/grpo_output /tmp/unsloth_compiled_cache' \
     'echo "[entrypoint] starting GRPO training in background"' \
     '(' \
     '  python -u training/train_grpo.py 2>&1 | sed -u "s/^/[train] /"' \

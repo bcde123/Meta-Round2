@@ -414,7 +414,10 @@ def main():
     model.print_trainable_parameters()
 
     # ── 3. Training config ─────────────────────────────────────────────────────
-    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output"))
+    # HF Spaces runs UID 1000 with a read-only /app; repo-relative grpo_output
+    # works locally but fails there. Override with GRPO_OUTPUT_DIR (set in Dockerfile).
+    _repo_default = os.path.abspath(os.path.join(os.path.dirname(__file__), "../grpo_output"))
+    output_dir = os.path.abspath(os.path.expanduser(os.environ.get("GRPO_OUTPUT_DIR", _repo_default)))
     os.makedirs(output_dir, exist_ok=True)
     grpo_kwargs = dict(
         output_dir=output_dir,

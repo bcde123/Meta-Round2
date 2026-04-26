@@ -9,6 +9,7 @@ Environment variables:
   HF_ADAPTER_REPO  – HuggingFace repo ID for the adapter (e.g. "username/adapter-name")
   HF_TOKEN          – HuggingFace token for private repos
   ADAPTER_LOCAL_PATH – Override local path to adapter directory
+  GRPO_OUTPUT_DIR   – Training output root (default: ./grpo_output); Dockerfile sets /tmp/grpo_output on HF
 """
 
 import os
@@ -21,11 +22,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 BASE_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 MAX_SEQ_LENGTH = 4096
 
-# Adapter source: HuggingFace Hub repo OR local path
+# Adapter source: HuggingFace Hub repo OR local path (must match train_grpo.py output layout)
 HF_ADAPTER_REPO = os.getenv("HF_ADAPTER_REPO", "")
+_repo_root = os.path.dirname(__file__)
+_default_grpo_out = os.path.abspath(os.path.join(_repo_root, "grpo_output"))
+_grpo_out = os.path.abspath(os.path.expanduser(os.environ.get("GRPO_OUTPUT_DIR", _default_grpo_out)))
 ADAPTER_LOCAL_PATH = os.getenv(
     "ADAPTER_LOCAL_PATH",
-    os.path.join(os.path.dirname(__file__), "grpo_output", "final_adapter")
+    os.path.join(_grpo_out, "final_adapter"),
 )
 HF_TOKEN = os.getenv("HF_TOKEN", None)
 
