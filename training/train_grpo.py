@@ -1,9 +1,21 @@
 import os
 import time
+import getpass
+
+# Patch getpass.getuser to avoid KeyError: 'getpwuid(): uid not found: 1000'
+# in container environments like Hugging Face Spaces.
+try:
+    getpass.getuser()
+except KeyError:
+    def dummy_getuser():
+        return os.environ.get("USER", "huggingface")
+    getpass.getuser = dummy_getuser
+
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-os.environ["WANDB_DISABLED"] = "true"  # Prevent wandb login prompt on Colab
+os.environ["WANDB_DISABLED"] = "true"
 os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/torch_inductor"
 os.environ["USER"] = "huggingface"
+os.environ["LOGNAME"] = "huggingface"
 import re
 import json
 import random

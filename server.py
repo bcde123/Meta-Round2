@@ -1,9 +1,23 @@
+import os
+import getpass
+
+# Patch getpass.getuser to avoid KeyError: 'getpwuid(): uid not found: 1000'
+try:
+    getpass.getuser()
+except KeyError:
+    def dummy_getuser():
+        return os.environ.get("USER", "huggingface")
+    getpass.getuser = dummy_getuser
+
+os.environ["USER"] = "huggingface"
+os.environ["LOGNAME"] = "huggingface"
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/torch_inductor"
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-import os
 import ast as _ast
 import uuid
 import torch
