@@ -430,9 +430,6 @@ def main():
         import matplotlib.pyplot as plt
 
         history = trainer.state.log_history or []
-        steps = [h.get("step") for h in history if "loss" in h or "reward" in h]
-        losses = [h.get("loss") for h in history if "loss" in h]
-        rewards = [h.get("reward") for h in history if "reward" in h]
 
         # Persist raw history for reproducibility
         assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../assets"))
@@ -440,9 +437,28 @@ def main():
         with open(os.path.join(assets_dir, "log_history.json"), "w") as f:
             json.dump(history, f, indent=2, default=str)
 
-        # X-axis = global trainer step (not row index) when available
-        loss_pts = [(h["step"], h["loss"]) for h in history if "loss" in h and "step" in h]
-        rew_pts = [(h["step"], h["reward"]) for h in history if "reward" in h and "step" in h]
+        import math
+
+        def _finite(v):
+            try:
+                v = float(v)
+                return v if math.isfinite(v) else None
+            except (TypeError, ValueError):
+                return None
+
+        # X-axis = global trainer step (not row index) when available.
+        # Filter rows where the value is None/NaN so plotting never crashes
+        # on a partial run.
+        loss_pts = [
+            (h["step"], _finite(h.get("loss")))
+            for h in history if "loss" in h and "step" in h
+        ]
+        loss_pts = [(s, y) for s, y in loss_pts if y is not None]
+        rew_pts = [
+            (h["step"], _finite(h.get("reward")))
+            for h in history if "reward" in h and "step" in h
+        ]
+        rew_pts = [(s, y) for s, y in rew_pts if y is not None]
 
         fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
         fig.suptitle(

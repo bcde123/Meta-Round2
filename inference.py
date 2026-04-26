@@ -70,8 +70,10 @@ def _load_model():
         print("✅ Model loaded via Unsloth")
         return model, tokenizer
 
-    except (ImportError, Exception) as e:
-        print(f"Unsloth unavailable ({e}), falling back to transformers+peft...")
+    except Exception as e:
+        # Catch ImportError, runtime errors, OOM, etc. and fall back.
+        print(f"Unsloth unavailable ({type(e).__name__}: {e}), "
+              f"falling back to transformers+peft...")
 
     # ── Fallback: vanilla transformers + peft (Docker/CPU) ───────────────
     print(f"Loading base model: {BASE_MODEL}")
