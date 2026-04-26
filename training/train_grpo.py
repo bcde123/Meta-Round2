@@ -86,165 +86,244 @@ def extract_completion_text(completion):
         return " ".join(msg.get("content", "") for msg in completion if isinstance(msg, dict))
     return str(completion)
 
-def _compute_lint_score(code_text: str) -> float:
-    issues = 0
-    lines = code_text.split("\n")
-    for line in lines:
-        if len(line) > 88: issues += 1
-        if line.rstrip() != line: issues += 1
-        if "import *" in line: issues += 1
-        if line.strip().startswith("except:"): issues += 1
-    return max(0.0, 1.0 - issues / max(len(lines), 1))
+# ═══════════════════════════════════════════════════════════════════════════════
+# ANTI-CHEAT CONSTANTS
+# ═══════════════════════════════════════════════════════════════════════════════
+PROTECTED_FILES = frozenset({"conftest.py", "test_main.py", "test_api.py",
+                             "test_utils.py", "pytest.ini", "setup.cfg"})
+FORBIDDEN_NAMES = frozenset({"varelunixo", "xhackbypass", "__reward_stub__"})
+EFFICIENCY_PENALTY_PER_EDIT = 0.01   # Small cost per edited file
+HACK_PENALTY = -1.0                   # Immediate termination-level penalty
+TEST_WEIGHT = 1.0                     # Weight for the binary test gate
 
-def _compute_complexity(files: dict) -> float:
-    total_branches = 0
-    total_functions = 0
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BINARY EXECUTION GATE  (S_test)
+# ═══════════════════════════════════════════════════════════════════════════════
+def _binary_test_score(files: dict) -> float:
+    """Binary execution gate: 1.0 if ALL files parse, 0.0 otherwise.
+
+    This is intentionally brutal — a single SyntaxError in any file
+    zeroes out the entire reward via the multiplicative formula.
+    """
     for content in files.values():
         try:
-            tree = ast.parse(content)
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    total_functions += 1
-                    for subnode in ast.walk(node):
-                        if isinstance(subnode, (ast.If, ast.For, ast.While, ast.ExceptHandler)):
-                            total_branches += 1
+            ast.parse(content)
         except SyntaxError:
-            pass
-    if total_functions == 0: return 0.0
-    return total_branches / total_functions
+            return 0.0
+    return 1.0
 
-def _compute_module_size_compliance(files: dict) -> float:
-    if not files: return 0.0
-    compliant = sum(1 for content in files.values() if len(content.split("\n")) <= 200)
-    return compliant / len(files)
 
-def _has_docstrings(code_text: str) -> float:
-    try:
-        tree = ast.parse(code_text)
-    except SyntaxError:
-        return 0.0
-    total = 0
-    with_doc = 0
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            total += 1
-            if ast.get_docstring(node):
-                with_doc += 1
-    if total == 0: return 1.0
-    return with_doc / total
+# ═══════════════════════════════════════════════════════════════════════════════
+# HACK DETECTION
+# ═══════════════════════════════════════════════════════════════════════════════
+def _detect_hack(edits: dict, orig_files: dict) -> tuple:
+    """Layered anti-cheat verification.
 
-def _has_type_hints(code_text: str) -> float:
-    try:
-        tree = ast.parse(code_text)
-    except SyntaxError:
-        return 0.0
-    total_args = 0
-    annotated_args = 0
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for arg in node.args.args:
-                if arg.arg not in ("self", "cls"):
-                    total_args += 1
-                    if arg.annotation is not None:
-                        annotated_args += 1
-    if total_args == 0: return 1.0
-    return annotated_args / total_args
+    Returns (is_hack: bool, reason: str).
+    Checks:
+      1. Editing protected / test infrastructure files.
+      2. Introducing test stubs (e.g. `def test_all(): return True`).
+      3. Using forbidden naming conventions.
+      4. Deleting all test assertions.
+    """
+    for fname in edits:
+        # 1. Protected-file guard
+        basename = fname.rsplit("/", 1)[-1] if "/" in fname else fname
+        if basename in PROTECTED_FILES:
+            return True, f"Edited protected file: {fname}"
+        if basename.startswith("test_") and fname not in orig_files:
+            return True, f"Created new test file to bypass checks: {fname}"
 
-def compute_code_quality_fast(orig_files: dict, updated_files: dict) -> float:
-    orig_lint = sum(_compute_lint_score(c) for c in orig_files.values()) / max(len(orig_files), 1)
-    new_lint = sum(_compute_lint_score(c) for c in updated_files.values()) / max(len(updated_files), 1)
-    lint_improvement = max(0.0, new_lint - orig_lint + 0.5)
-    lint_improvement = min(lint_improvement, 1.0)
-    orig_complexity = _compute_complexity(orig_files)
-    new_complexity = _compute_complexity(updated_files)
-    if orig_complexity == 0:
-        complexity_score = 1.0
+    for fname, content in edits.items():
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            continue  # unparseable code is penalised by binary gate, not hack
+
+        for node in ast.walk(tree):
+            # 2. Test-stub detection: test functions that only `return True`
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+                body = [n for n in node.body
+                        if not isinstance(n, (ast.Expr,))
+                        or not isinstance(getattr(n, 'value', None), ast.Constant)]
+                if len(body) == 1 and isinstance(body[0], ast.Return):
+                    val = body[0].value
+                    if isinstance(val, ast.Constant) and val.value is True:
+                        return True, f"Test stub detected in {fname}: {node.name}"
+
+            # 3. Forbidden names
+            if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+                return True, f"Forbidden name '{node.id}' in {fname}"
+            if isinstance(node, ast.FunctionDef) and node.name in FORBIDDEN_NAMES:
+                return True, f"Forbidden function name '{node.name}' in {fname}"
+
+        # 4. Deleted all assertions from a file that originally had them
+        if fname in orig_files:
+            orig_asserts = sum(1 for n in ast.walk(ast.parse(orig_files[fname]))
+                               if isinstance(n, ast.Assert))
+            new_asserts = sum(1 for n in ast.walk(tree)
+                              if isinstance(n, ast.Assert))
+            if orig_asserts > 0 and new_asserts == 0:
+                return True, f"All assertions deleted from {fname}"
+
+    return False, ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GRANULAR AST COMPLIANCE  (C_i per rule)
+# ═══════════════════════════════════════════════════════════════════════════════
+def _compute_granular_compliance(orig_files: dict, updated_files: dict,
+                                  active_rules: list) -> float:
+    """Per-rule compliance score: (1/N) * sum(C_i).
+
+    Each C_i is 1.0 if the corresponding structural constraint is
+    satisfied, 0.0 otherwise.  Uses the ComplianceChecker for rule-
+    engine evaluation and augments it with direct AST checks for
+    naming, forbidden patterns, and structural requirements.
+    """
+    evaluator_b = ComplianceChecker(STANDARDS_PATH)
+    evaluator_b.reset(orig_files, active_rules)
+
+    # Simulate edits so the rule engine can process resolutions
+    for fname in updated_files:
+        if fname in orig_files and updated_files[fname] != orig_files[fname]:
+            action = {"tool": "edit_file", "args": {"filename": fname}}
+            evaluator_b.step(action, f"Edited {fname}")
+
+    engine_score = evaluator_b.get_score()  # 0.0 – 1.0
+
+    # ── AST-level structural bonus checks ──────────────────────────────────
+    ast_checks_passed = 0
+    ast_checks_total = 0
+
+    for content in updated_files.values():
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                ast_checks_total += 1
+                # Check: no single-letter function names (excluding standard ones)
+                if len(node.name) > 1 or node.name in ("_",):
+                    ast_checks_passed += 1
+
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                ast_checks_total += 1
+                if node.id not in FORBIDDEN_NAMES and len(node.id) > 1:
+                    ast_checks_passed += 1
+
+    if ast_checks_total > 0:
+        ast_ratio = ast_checks_passed / ast_checks_total
     else:
-        complexity_score = max(0.0, (orig_complexity - new_complexity) / orig_complexity)
-    size_score = _compute_module_size_compliance(updated_files)
-    doc_score = sum(_has_docstrings(c) for c in updated_files.values()) / max(len(updated_files), 1)
-    hint_score = sum(_has_type_hints(c) for c in updated_files.values()) / max(len(updated_files), 1)
-    total = (0.25 * lint_improvement + 0.20 * complexity_score + 0.20 * size_score + 0.20 * doc_score + 0.15 * hint_score)
-    return total
+        ast_ratio = 1.0
 
+    # Blend: 70% rule-engine, 30% direct AST verification
+    return 0.70 * engine_score + 0.30 * ast_ratio
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MULTIPLICATIVE REWARD FUNCTION
+# R = (W_test * S_test) * compliance_score - P_efficiency - P_hack
+# ═══════════════════════════════════════════════════════════════════════════════
 def reward_function(completions, prompts, files, rules_active, **kwargs):
-    """Compute rewards for GRPO training.
-    
-    Uses fast AST-based code quality scoring (no subprocess calls)
-    and a graduated format reward to bootstrap learning.
+    """Compute rewards for GRPO training using the multiplicative formulation.
+
+    Formula:
+        R_total = (W_test * S_test) × (1/N * Σ C_i) - P_efficiency - P_hack
+
+    Design principles:
+      • Binary test gate: if ANY file has a SyntaxError the multiplier is 0.
+      • Granular compliance: per-rule AST verification blended with the
+        rule-engine score.
+      • Efficiency penalty: 0.01 per file edited to encourage minimal edits.
+      • Hack penalty: -1.0 and immediate short-circuit for cheating attempts.
+      • A small format bonus is preserved to bootstrap early learning of the
+        required XML output structure.
     """
     t0 = time.time()
     rewards = []
     files_batch = [json.loads(f) for f in files]
     rules_batch = [json.loads(r) for r in rules_active]
-    
-    for idx, (completion, orig_files, active_rules) in enumerate(zip(completions, files_batch, rules_batch)):
+
+    for idx, (completion, orig_files, active_rules) in enumerate(
+        zip(completions, files_batch, rules_batch)
+    ):
         try:
             completion_text = extract_completion_text(completion)
             edits = parse_completions(completion_text)
 
-            # ── Format reward: graduated, fine-grained ────────────────────────
-            format_reward = 0.0
-            if "<file" in completion_text: format_reward += 0.02
-            if '</file>' in completion_text: format_reward += 0.02
+            # ── Format bonus (bootstrap signal) ──────────────────────────────
+            format_bonus = 0.0
+            if "<file" in completion_text:
+                format_bonus += 0.02
+            if "</file>" in completion_text:
+                format_bonus += 0.02
             if edits:
-                # Reward scales with how many original files were edited (0-4)
                 valid_edits = {k: v for k, v in edits.items() if k in orig_files}
-                format_reward += 0.06 * min(len(valid_edits), 4) / 4.0
-            
+                format_bonus += 0.06 * min(len(valid_edits), 4) / 4.0
+
             if not edits:
-                rewards.append(-0.1 + format_reward)
+                rewards.append(-0.1 + format_bonus)
                 continue
 
-            # ── Apply edits to codebase ────────────────────────────────────────
+            # ── Apply edits ──────────────────────────────────────────────────
             updated_files = orig_files.copy()
-            parse_successes = 0
-            parse_total = 0
             for fname, content in edits.items():
                 if fname in updated_files:
                     updated_files[fname] = content
-                    parse_total += 1
-                    try:
-                        ast.parse(content)
-                        parse_successes += 1
-                    except SyntaxError:
-                        pass
 
-            # ── Parsability bonus: key differentiator between completions ──────
-            if parse_total > 0:
-                parse_score = parse_successes / parse_total  # 0.0 to 1.0
-            else:
-                parse_score = 0.0
+            # ── HACK DETECTION (P_hack) ──────────────────────────────────────
+            is_hack, hack_reason = _detect_hack(edits, orig_files)
+            if is_hack:
+                print(f"    ⚠ HACK detected (completion {idx}): {hack_reason}")
+                rewards.append(HACK_PENALTY)
+                continue
 
-            # ── Code quality (Track A) ────────────────────────────────────────
-            score_a = compute_code_quality_fast(orig_files, updated_files)
+            # ── BINARY TEST GATE (S_test) ────────────────────────────────────
+            s_test = _binary_test_score(updated_files)
 
-            # ── Compliance (Track B) ──────────────────────────────────────────
-            evaluator_b = ComplianceChecker(STANDARDS_PATH)
-            evaluator_b.reset(orig_files, active_rules)
-            for fname in edits.keys():
-                action = {"tool": "edit_file", "args": {"filename": fname}}
-                evaluator_b.step(action, f"Edited {fname}")
-            score_b = evaluator_b.get_score()
+            # ── GRANULAR COMPLIANCE (1/N * Σ C_i) ────────────────────────────
+            compliance_score = _compute_granular_compliance(
+                orig_files, updated_files, active_rules
+            )
 
-            # ── Green-code efficiency (Track C) ──────────────────────────────
+            # ── EFFICIENCY PENALTY (P_efficiency) ────────────────────────────
+            num_files_edited = sum(
+                1 for f in edits if f in orig_files
+            )
+            p_efficiency = EFFICIENCY_PENALTY_PER_EDIT * num_files_edited
+
+            # ── Green-code efficiency (Track C — supplemental signal) ────────
             evaluator_c = GreenCodeEvaluator()
             green_score = evaluator_c.evaluate(orig_files, updated_files)
             score_c = green_score.total
-            print(f"    [Track C] completion {idx}: green_score={score_c:.3f} "
-                  f"(graphlet={green_score.graphlet_score:.3f}, "
-                  f"cpu={green_score.cpu_improvement:.3f}, "
-                  f"mem={green_score.memory_improvement:.3f})")
+            print(
+                f"    [Track C] completion {idx}: green={score_c:.3f} "
+                f"(graphlet={green_score.graphlet_score:.3f}, "
+                f"cpu={green_score.cpu_improvement:.3f}, "
+                f"mem={green_score.memory_improvement:.3f})"
+            )
 
-            # ── Final reward: weighted combination ────────────────────────────
-            # Weights: quality=0.50, compliance=0.35, green=0.15, +format bonus
+            # ── MULTIPLICATIVE REWARD ─────────────────────────────────────────
+            # R = (W_test * S_test) × compliance - P_efficiency
+            # Green score is folded into compliance as a 15% blend
+            blended_compliance = 0.85 * compliance_score + 0.15 * score_c
             reward = (
-                0.50 * score_a +
-                0.35 * score_b +
-                0.15 * score_c +
-                format_reward
+                (TEST_WEIGHT * s_test) * blended_compliance
+                - p_efficiency
+                + format_bonus
+            )
+
+            print(
+                f"    [Reward] #{idx}: S_test={s_test:.0f} | "
+                f"compliance={compliance_score:.3f} | green={score_c:.3f} | "
+                f"P_eff={p_efficiency:.3f} | R={reward:.4f}"
             )
             rewards.append(reward)
+
         except Exception as e:
             print(f"Reward calculation error: {e}")
             rewards.append(-0.1)
