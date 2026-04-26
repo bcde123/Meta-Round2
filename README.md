@@ -162,7 +162,7 @@ python training/compare_baseline.py --num-episodes 20
 # → assets/baseline_vs_trained.png + .json
 ```
 
-![Baseline vs Trained](https://huggingface.co/spaces/s123hree/green-code-optimizer-a100/raw/main/assets/baseline_vs_trained.png)
+![Baseline vs Trained](https://raw.githubusercontent.com/bcde123/Meta-Round2/main/assets/baseline_vs_trained.png)
 
 ### Training curves
 

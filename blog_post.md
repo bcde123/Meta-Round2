@@ -46,7 +46,7 @@ We built a reinforcement learning environment where an AI agent receives a broke
 
 ## The Architecture at a Glance
 
-![System architecture — high-level diagram](https://huggingface.co/spaces/s123hree/green-code-optimizer-a100/raw/main/assets/system_architecture_diagram.png)
+![System architecture — high-level diagram](https://raw.githubusercontent.com/bcde123/Meta-Round2/main/assets/system_architecture_diagram.png)
 
 ```mermaid
 graph TD
@@ -108,7 +108,7 @@ Track C (Green Code): Measures the real-world energy cost of the refactored code
 
 ## Track C Deep Dive: The CO₂ Pipeline
 
-![CO₂ Pipeline Diagram](https://huggingface.co/spaces/s123hree/green-code-optimizer-a100/raw/main/assets/co2_pipeline_diagram.png)
+![CO₂ Pipeline Diagram](https://raw.githubusercontent.com/bcde123/Meta-Round2/main/assets/co2_pipeline_diagram.png)
 
 ```mermaid
 flowchart LR
@@ -185,7 +185,7 @@ Furthermore, because models are brilliant at specification gaming, we built 5 la
 
 ## Training with GRPO
 
-![RL training and evaluation pipeline — one episode](https://huggingface.co/spaces/s123hree/green-code-optimizer-a100/raw/main/assets/architecture_pipeline.png)
+![RL training and evaluation pipeline — one episode](https://raw.githubusercontent.com/bcde123/Meta-Round2/main/assets/architecture_pipeline.png)
 
 To train the agent, we chose Group Relative Policy Optimization (GRPO) because it avoids the massive memory overhead of a critic model. We used Qwen2.5-Coder-7B-Instruct wrapped in 4-bit QLoRA via Unsloth.
 
