@@ -35,6 +35,35 @@ except ImportError:
     wandb = None
 
 import torch
+import traceback as _tb
+
+# ── bitsandbytes preflight ────────────────────────────────────────────────────
+# Unsloth's __init__.py has a known footgun: if `import bitsandbytes as bnb`
+# raises, the bare `except:` swallows it but `bnb` is never bound, and a later
+# `importlib.reload(bnb)` inside the same function fires `NameError: name 'bnb'
+# is not defined`, which kills the entire `import unsloth` line. To diagnose
+# the *real* root cause we import bnb ourselves first, with a full traceback,
+# and also force-trigger any deferred CUDA loader error so we can see it.
+print("  bitsandbytes preflight…")
+try:
+    import bitsandbytes as _preflight_bnb
+    print(f"    OK: v{_preflight_bnb.__version__}")
+    try:
+        from bitsandbytes import cextension as _cext
+        _lib_cls = type(_cext.lib).__name__
+        print(f"    cextension.lib type: {_lib_cls}")
+        if _lib_cls.startswith("ErrorHandler"):
+            print("    ⚠️  bnb in ERROR-MOCK mode — deferred CUDA loader error:")
+            print("    " + (getattr(_cext.lib, "formatted_error", "<no .formatted_error>") or "").replace("\n", "\n    "))
+        else:
+            print("    bnb CUDA shim loaded for real (no mock fallback)")
+    except Exception as _e:
+        print(f"    ⚠️  cextension introspection failed: {type(_e).__name__}: {_e}")
+        _tb.print_exc()
+except Exception as _e:
+    print(f"    ❌ FAILED: {type(_e).__name__}: {_e}")
+    _tb.print_exc()
+# ──────────────────────────────────────────────────────────────────────────────
 
 # ── Unsloth + GPU imports ─────────────────────────────────────────────────────
 # Imported at module level for GPU capability detection; training imports
@@ -43,7 +72,8 @@ try:
     from unsloth import FastLanguageModel, PatchFastRL
     _UNSLOTH_OK = True
 except Exception as e:
-    print(f"⚠️  Unsloth import failed: {e}")
+    print(f"⚠️  Unsloth import failed: {type(e).__name__}: {e}")
+    _tb.print_exc()
     _UNSLOTH_OK = False
 # ─────────────────────────────────────────────────────────────────────────────
 

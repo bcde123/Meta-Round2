@@ -47,6 +47,23 @@ print('dlopen', so); \
 ctypes.CDLL(str(so)); \
 print('bnb', bitsandbytes.__version__, 'CUDA shim loads OK')"
 
+# ── Patch unsloth's bnb fallback path ────────────────────────────────────────
+# unsloth/__init__.py has a footgun: if `import bitsandbytes as bnb` raises,
+# the bare `except:` swallows it but `bnb` is never bound, and the *very next*
+# except block calls `importlib.reload(bnb)` — which raises `NameError: name
+# 'bnb' is not defined` and propagates out of `import unsloth` entirely.
+# Wrap that single reload call so unsloth can finish importing in 16-bit mode
+# even when bnb has any runtime issue, instead of taking the whole trainer
+# (and our diagnostic logging) down with a cryptic NameError.
+RUN python -c "import pathlib; \
+p = pathlib.Path('/opt/conda/lib/python3.11/site-packages/unsloth/__init__.py'); \
+src = p.read_text(); \
+old = '        importlib.reload(bnb)\n        importlib.reload(triton)'; \
+new = '        try: importlib.reload(bnb)\n        except NameError: pass  # bnb undefined if its import failed earlier\n        importlib.reload(triton)'; \
+assert old in src, 'unsloth bnb-reload pattern not found — wheel changed shape'; \
+p.write_text(src.replace(old, new, 1)); \
+print('Patched unsloth __init__.py: guarded importlib.reload(bnb)')"
+
 # ── Copy application code ────────────────────────────────────────────────────
 COPY environment/ ./environment/
 COPY server.py .
