@@ -28,6 +28,13 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
 
+# Fix for KeyError: 'getpwuid(): uid not found: 1000'
+# Hugging Face Spaces runs as UID 1000 without a corresponding /etc/passwd entry.
+# Torch Inductor tries to get the username for caching.
+ENV TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor
+ENV USER=huggingface
+ENV LOGNAME=huggingface
+
 EXPOSE 7860
 
 # Health check for container orchestrators / HF Spaces

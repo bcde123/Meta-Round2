@@ -2,6 +2,8 @@ import os
 import time
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["WANDB_DISABLED"] = "true"  # Prevent wandb login prompt on Colab
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/torch_inductor"
+os.environ["USER"] = "huggingface"
 import re
 import json
 import random
