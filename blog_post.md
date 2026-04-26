@@ -34,16 +34,16 @@ The 0.27 → 0.53 gap is not theoretical. It is a measured, learnable opportunit
 
 ---
 
-## Enter the Constrained Refactor Gauntlet
+## Enter the 🌱 Green-Code Optimizer
 
 What if an AI could reason about which code patterns waste energy, make targeted fixes, quantify the CO₂ impact, and do all of this while obeying 150 engineering standards?
 
-This question birthed the Constrained Refactor Gauntlet — our submission to the Meta PyTorch OpenEnv Hackathon (Long-Horizon Planning & Instruction Following track).
+This question birthed the 🌱 Green-Code Optimizer — our submission to the Meta PyTorch OpenEnv Hackathon (Long-Horizon Planning & Instruction Following track).
 
 We built a reinforcement learning environment where an AI agent receives a broken legacy Python codebase, has 70 steps to fix it, and is rewarded not just for correct and compliant code, but for code that measurably reduces energy consumption and CO₂ output.
 
 
-![Constrained Refactor Gauntlet — System Architecture](system_architecture_diagram.png)
+![🌱 Green-Code Optimizer — System Architecture](system_architecture_diagram.png)
 
 *Full system architecture: the AI agent takes actions against the FastAPI 
 environment, the evaluation engine scores across three tracks, and the 

@@ -1,5 +1,5 @@
 # ============================================================
-# 🚀 Constrained Refactor Gauntlet — Colab Verification Notebook
+# 🚀 🌱 Green-Code Optimizer — Colab Verification Notebook
 # ============================================================
 #
 # HOW TO USE:

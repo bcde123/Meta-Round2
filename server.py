@@ -14,7 +14,7 @@ from environment.track_c import GreenCodeEvaluator
 from environment.co2_calculator import generate_dashboard_data
 
 app = FastAPI(
-    title="Constrained Refactor Gauntlet",
+    title="🌱 Green-Code Optimizer",
     description="OpenEnv RL environment for multi-file code refactoring with 150 cascading rules",
     version="1.0.0",
 )
@@ -161,7 +161,7 @@ def root():
     """Project info page."""
     gpu_available = torch.cuda.is_available()
     return {
-        "project": "Constrained Refactor Gauntlet",
+        "project": "🌱 Green-Code Optimizer",
         "description": "OpenEnv RL environment: refactor a Python codebase while obeying 150 cascading engineering rules",
         "hackathon": "Meta PyTorch OpenEnv Hackathon",
         "reward_formula": "0.50×CodeScore + 0.35×ComplianceScore + 0.15×GreenScore",

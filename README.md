@@ -1,5 +1,5 @@
 ---
-title: Constrained Refactor Gauntlet
+title: 🌱 Green-Code Optimizer
 emoji: 🔧
 colorFrom: blue
 colorTo: purple
@@ -7,9 +7,9 @@ sdk: docker
 pinned: false
 ---
 
-# Constrained Refactor Gauntlet 🔧
+# 🌱 Green-Code Optimizer 🔧
 
-**Constrained Refactor Gauntlet** is an OpenEnv Reinforcement Learning environment where an AI agent refactors a legacy Python codebase while strictly obeying 150 cascading engineering rules, improving code quality, and reducing energy consumption.
+**🌱 Green-Code Optimizer** is an OpenEnv Reinforcement Learning environment where an AI agent refactors a legacy Python codebase while strictly obeying 150 cascading engineering rules, improving code quality, and reducing energy consumption.
 
 This project is a submission for the **Meta PyTorch OpenEnv Hackathon — Long-Horizon Planning & Instruction Following**.
 
@@ -32,7 +32,7 @@ The agent receives a broken legacy Python codebase, has **70 steps to fix it**, 
 - **Training Method**: GRPO (Group Relative Policy Optimization) via Unsloth
 - **Adapter Link**: [shreeyanshi03/constrained-refactor-adapter](https://huggingface.co/shreeyanshi03/constrained-refactor-adapter)
 
-![Constrained Refactor Gauntlet — System Architecture](system_architecture_diagram.png)
+![🌱 Green-Code Optimizer — System Architecture](system_architecture_diagram.png)
 
 ### Three-Track Scoring System
 When an episode ends, the environment evaluates the agent across three orthogonal tracks:

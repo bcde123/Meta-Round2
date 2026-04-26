@@ -82,7 +82,7 @@ def main():
         folder_path=adapter_path,
         repo_id=args.repo_id,
         repo_type="model",
-        commit_message="Upload GRPO-trained LoRA adapter for Constrained Refactor Gauntlet",
+        commit_message="Upload GRPO-trained LoRA adapter for 🌱 Green-Code Optimizer",
     )
 
     print(f"\n✅ Upload complete!")
