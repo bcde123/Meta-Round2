@@ -31,16 +31,17 @@ try:
 except ImportError:
     wandb = None
 
-# ── Unsloth + GPU imports (deferred for CPU-only testing) ─────────────────────
+import torch
+
+# ── Unsloth + GPU imports ─────────────────────────────────────────────────────
+# Imported at module level for GPU capability detection; training imports
+# (GRPOConfig, GRPOTrainer) are deferred into main() so any error is visible.
 try:
-    import torch
     from unsloth import FastLanguageModel, PatchFastRL
-    PatchFastRL("GRPO", FastLanguageModel)          # patch TRL's GRPOTrainer for 2x speed
-    from trl import GRPOConfig, GRPOTrainer
-    HAS_GPU = True
-except (ImportError, NotImplementedError):
-    HAS_GPU = False
-# ─────────────────────────────────────────────────────────────────────────────
+    _UNSLOTH_OK = True
+except Exception as e:
+    print(f"⚠️  Unsloth import failed: {e}")
+    _UNSLOTH_OK = False
 # ─────────────────────────────────────────────────────────────────────────────
 
 import sys
@@ -378,9 +379,21 @@ def create_training_dataset(num_episodes=50):
     return datasets.Dataset.from_dict(dataset_dict)
 
 def main():
-    if not HAS_GPU:
-        print("❌ GPU required for training. Run this on Colab or a machine with NVIDIA/AMD GPU.")
+    if not torch.cuda.is_available():
+        print("❌ No CUDA GPU detected. Training requires an NVIDIA GPU.")
         return
+    if not _UNSLOTH_OK:
+        print("❌ Unsloth failed to import — cannot train. Check logs above for the error.")
+        return
+
+    # Defer these imports to here so errors are visible instead of silently caught
+    try:
+        PatchFastRL("GRPO", FastLanguageModel)
+        from trl import GRPOConfig, GRPOTrainer
+    except Exception as e:
+        print(f"❌ Failed to patch/import GRPO trainer: {e}")
+        raise
+
     # ── 1. Load model via Unsloth (replaces manual transformers + peft setup) ──
     print("Loading model via Unsloth FastLanguageModel...")
     model, tokenizer = FastLanguageModel.from_pretrained(
