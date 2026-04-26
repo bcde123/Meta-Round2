@@ -9,7 +9,7 @@ except KeyError:
         return os.environ.get("USER", "huggingface")
     getpass.getuser = dummy_getuser
 
-os.environ["USER"] = "huggingface"
+os.environ["TORCHINDUCTOR_DISABLE"] = "1"
 os.environ["LOGNAME"] = "huggingface"
 os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/torch_inductor"
 
