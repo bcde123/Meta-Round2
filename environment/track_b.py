@@ -8,8 +8,11 @@ class ComplianceChecker:
         
     def reset(self, files: Dict[str, str], rules_active: List[int]) -> ViolationReport:
         self.state = EpisodeState()
-        import random
-        initial_triggers = random.sample(rules_active, min(len(rules_active), 15))
+        # Deterministic initial obligations are important for RL: the same
+        # candidate refactor should receive the same compliance reward when
+        # scored repeatedly. Episode variety already comes from the generator's
+        # code corruptions and active-rule budget.
+        initial_triggers = list(rules_active[:min(len(rules_active), 15)])
         for rid in initial_triggers:
             self.state.triggered_rules.add(rid)
             self.state.outstanding_obligations.add(rid)

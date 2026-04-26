@@ -12,11 +12,8 @@ pinned: true
 > **An RL agent that refactors Python code for energy efficiency, not readability — and tells you exactly how much CO₂ it saves.**
 
 [![HF Space](https://img.shields.io/badge/🤗_Space-Live-blue)](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100)
-[![Adapter](https://img.shields.io/badge/🤗_Adapter-Qwen2.5--Coder--1.5B-orange)](https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b)
-[![OpenEnv](https://img.shields.io/badge/OpenEnv-compatible-success)](https://github.com/meta-pytorch/openenv)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-
-**Try it in 30 seconds → [Live Demo](https://s123hree-constrained-refactor-gauntlet-a100.hf.space/demo)** &nbsp;·&nbsp; **[CO₂ Dashboard](https://s123hree-constrained-refactor-gauntlet-a100.hf.space/dashboard/co2/demo)**
+[![Repository](https://img.shields.io/badge/Repository-GitHub-black)](https://github.com/bcde123/Meta-Round2)
+[![Blog Post](https://img.shields.io/badge/Blog_Post-HF_Repo-green)](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100/blob/main/blog_post.md)
 
 ---
 
@@ -114,7 +111,7 @@ Parses each file into an AST and detects 4 classes of expensive control-flow gra
 Lower total cost → higher graphlet score (range `[0, 1]`).
 
 ### 3. Runtime Profiling — `environment/track_c.py`
-Each candidate refactor is **actually executed** in a sandbox: CPU time via `timeit`, peak memory via `tracemalloc`. Improvements vs. the original are clamped to `[0, 1]`.
+Each candidate refactor is **actually executed** in a timeout-bounded subprocess profiler: CPU time via `time.perf_counter`, peak memory via `tracemalloc`. If a file cannot be safely executed, Track C falls back to compile-time profiling so training never hangs.
 
 ### 4. Composable Rubric — `environment/rubrics.py`
 
@@ -150,12 +147,12 @@ CPU-time savings × CPU TDP × grid carbon intensity → kg CO₂/year, with rea
 
 ## 📊 Evidence the Agent Actually Learns
 
-We ran a **20-episode baseline comparison** before any RL training, scoring three policies on identical episodes:
+We ran a **25-episode baseline comparison** before any RL training, scoring policies on identical episodes:
 
 | Policy | Mean reward | Green score | Compliance | CO₂ saved/year |
 |--------|------------:|------------:|-----------:|---------------:|
-| **No-op** (does nothing) | 0.273 | 0.390 | 0.00 | 0.05 kg |
-| **Oracle** (cheats — sees the answer) | **0.535** | 0.412 | 0.82 | **1.10 kg** |
+| **No-op** (does nothing) | 0.270 | 0.386 | 0.00 | 0.42 kg |
+| **Oracle** (cheats — sees the answer) | **0.527** | 0.392 | 0.84 | **0.83 kg** |
 | **Trained agent** *(after 200 GRPO steps)* | _TBD — fill in after run_ | _TBD_ | _TBD_ | _TBD_ |
 
 The **96 % gap between no-op and oracle** proves the env has a strong, learnable signal. Reproduce locally:
@@ -169,9 +166,7 @@ python training/compare_baseline.py --num-episodes 20
 
 ### Training curves
 
-After running `training/train_grpo.py` on A100 (~25 min):
-
-![Training curves](assets/training_curves.png)
+`training/train_grpo.py` writes `assets/training_curves.png` and `assets/log_history.json` after the A100 GRPO run. Commit those files immediately after the final run so judges can verify the real loss/reward curves.
 
 ---
 
@@ -190,15 +185,9 @@ After running `training/train_grpo.py` on A100 (~25 min):
 
 | Resource | Link |
 |----------|------|
-| 🤗 **HF Space (live env)** | https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100 |
-| 🌱 **Live Demo Page** | https://s123hree-constrained-refactor-gauntlet-a100.hf.space/demo |
-| 📊 **CO₂ Dashboard (HTML)** | https://s123hree-constrained-refactor-gauntlet-a100.hf.space/dashboard/co2/{episode_id} |
-| 🤗 **Trained Adapter** | https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b |
-| 📓 **Colab Training Notebook** | [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb) |
-| 📊 **Training plots** | [`assets/training_curves.png`](assets/training_curves.png) |
-| 📊 **Baseline-vs-trained plot** | [`assets/baseline_vs_trained.png`](assets/baseline_vs_trained.png) |
-| 📝 **Writeup / Blog Post** | [`blog_post.md`](blog_post.md) — full problem-to-results narrative |
-| 🎥 **2-min Video Demo** | _TODO: paste YouTube URL here_ |
+| 🤗 **HF Space** | https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100 |
+| 🧑‍💻 **Repository** | https://github.com/bcde123/Meta-Round2 |
+| 📝 **Blog Post** | https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100/blob/main/blog_post.md |
 
 ---
 
@@ -219,7 +208,7 @@ This env follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec (RF
 ```python
 # Three-line judge-friendly usage:
 from client import GreenCodeEnv
-env = GreenCodeEnv("https://shreeyanshi03-green-code-optimizer-a100.hf.space")
+env = GreenCodeEnv("https://s123hree-constrained-refactor-gauntlet-a100.hf.space")
 obs = env.reset(curriculum_level=2)        # gym-style reset
 state = env.state()                         # gym-style state
 print(env.rubric_tree())                    # introspect the reward
@@ -298,9 +287,11 @@ SPACE_URL=https://s123hree-constrained-refactor-gauntlet-a100.hf.space \
 │   └── verify_pipeline.py       # CPU-only pipeline sanity check
 ├── notebooks/train_grpo.ipynb   # Colab-ready training notebook
 └── assets/
-    ├── training_curves.png
     ├── baseline_vs_trained.png
-    └── baseline_vs_trained.json
+    ├── baseline_vs_trained.json
+    ├── system_architecture_diagram.png
+    ├── architecture_pipeline.png
+    └── co2_pipeline_diagram.png
 ```
 
 ---
