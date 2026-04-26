@@ -153,7 +153,7 @@ We ran a **25-episode baseline comparison** before any RL training, scoring poli
 |--------|------------:|------------:|-----------:|---------------:|
 | **No-op** (does nothing) | 0.270 | 0.386 | 0.00 | 0.42 kg |
 | **Oracle** (cheats — sees the answer) | **0.527** | 0.392 | 0.84 | **0.83 kg** |
-| **Trained agent** *(after 200 GRPO steps)* | _TBD — fill in after run_ | _TBD_ | _TBD_ | _TBD_ |
+| **Trained agent** *(after fast A100 GRPO run)* | _TBD — fill in after run_ | _TBD_ | _TBD_ | _TBD_ |
 
 The **96 % gap between no-op and oracle** proves the env has a strong, learnable signal. Reproduce locally:
 
@@ -244,8 +244,8 @@ uvicorn server:app --host 0.0.0.0 --port 7860
 # Visit http://localhost:7860/demo
 ```
 
-### Reproduce training (Colab, A100, ~25 min)
-Open [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb) → run all cells.
+### Reproduce training (A100, deadline-safe)
+The Space defaults to a fast final run: `TRAIN_MAX_STEPS=80`, `TRAIN_NUM_GENERATIONS=2`, `TRAIN_NUM_EPISODES=80`, `LORA_RANK=8`, and compile-mode green profiling. Increase these env vars only if you have extra time.
 
 ### Reproduce baseline comparison (CPU, ~30 s)
 ```bash

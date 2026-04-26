@@ -268,10 +268,16 @@ class GreenScoreRubric(_BaseRubric):
         self.memory = MemoryRubric()
 
     def forward(self, action, observation) -> float:
-        g = self.graphlet(action, observation)
-        c = self.cpu(action, observation)
-        m = self.memory(action, observation)
-        return 0.40 * g + 0.35 * c + 0.25 * m
+        # Evaluate Track C once. Calling the leaf rubrics independently would
+        # duplicate CPU/memory profiling work, which is the slowest part of the
+        # reward. We still populate child last_score fields for logging.
+        from .track_c import GreenCodeEvaluator
+        score = GreenCodeEvaluator().evaluate(observation.orig_files,
+                                              action.updated_files)
+        self.graphlet.last_score = score.graphlet_score
+        self.cpu.last_score = score.cpu_improvement
+        self.memory.last_score = score.memory_improvement
+        return score.total
 
 
 # ── Top-level rubric builder ──────────────────────────────────────────────────

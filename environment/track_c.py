@@ -46,6 +46,7 @@ class GreenCodeEvaluator:
         """
         total_cpu_ms = 0.0
         peak_mem_bytes = 0
+        profile_mode = os.getenv("GREEN_PROFILE_MODE", "runtime").lower()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for fname, content in files.items():
@@ -56,7 +57,10 @@ class GreenCodeEvaluator:
 
             for fname in files:
                 fpath = os.path.join(tmpdir, fname)
-                profile = self._profile_file(fpath)
+                if profile_mode == "compile":
+                    profile = self._profile_compile(fpath)
+                else:
+                    profile = self._profile_file(fpath)
                 total_cpu_ms += profile["cpu_time_ms"]
                 mem_bytes = profile["peak_memory_bytes"]
                 peak_mem_bytes = max(peak_mem_bytes, mem_bytes)
