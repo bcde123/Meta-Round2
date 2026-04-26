@@ -264,8 +264,12 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
                 valid_edits = {k: v for k, v in edits.items() if k in orig_files}
                 format_bonus += 0.06 * min(len(valid_edits), 4) / 4.0
 
+            # Deterministic tie-breaker based on length to prevent zero variance
+            len_penalty = len(completion_text) * 1e-5
+
             if not edits:
-                rewards.append(-0.1 + format_bonus)
+                # Provide a small positive base reward instead of negative
+                rewards.append(1.0 + format_bonus - len_penalty)
                 continue
 
             # ── Apply edits ──────────────────────────────────────────────────
@@ -320,6 +324,13 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
             reward = rubric_score - p_efficiency
             if rubric_score > 0:
                 reward += format_bonus
+                
+            # Deterministic variance to ensure the reward is never exactly
+            # the same across all completions, preventing zero standard deviation.
+            reward -= len_penalty
+            
+            # Shift to make the entire reward generally positive instead of hovering around 0
+            reward += 2.0
 
             print(
                 f"    [Reward] #{idx}: gate={s_test:.0f} | "
@@ -331,7 +342,8 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
 
         except Exception as e:
             print(f"Reward calculation error: {e}")
-            rewards.append(-0.1)
+            # Positive fallback reward instead of -0.1
+            rewards.append(0.5)
 
     elapsed = time.time() - t0
     avg_r = sum(rewards) / len(rewards) if rewards else 0
