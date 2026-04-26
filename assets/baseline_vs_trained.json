@@ -1,60 +1,50 @@
 {
   "summary": {
     "noop": {
-      "n": 10,
-      "mean_reward": 0.2731,
-      "mean_green": 0.3901,
+      "n": 25,
+      "mean_reward": 0.27,
+      "mean_green": 0.3857,
       "mean_compliance": 0.0,
-      "mean_co2_kg_per_year": 0.0498,
+      "mean_co2_kg_per_year": 0.4193,
       "test_pass_rate": 1.0
     },
     "oracle": {
-      "n": 10,
-      "mean_reward": 0.5346,
-      "mean_green": 0.4122,
-      "mean_compliance": 0.82,
-      "mean_co2_kg_per_year": 1.0966,
+      "n": 25,
+      "mean_reward": 0.5266,
+      "mean_green": 0.3922,
+      "mean_compliance": 0.84,
+      "mean_co2_kg_per_year": 0.8273,
       "test_pass_rate": 1.0
     }
   },
   "raw": {
     "noop": [
       {
-        "reward": 0.2949,
+        "reward": 0.268,
         "s_test": 1.0,
-        "green_total": 0.4213,
+        "green_total": 0.3828605769230769,
         "graphlet": 0.95,
-        "cpu_improvement": 0.118,
+        "cpu_improvement": 0.008173076923076877,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 2.1455
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
         "memory_improvement": 0.0,
         "compliance": 0.0,
         "co2_kg_per_year": 0.0
       },
       {
-        "reward": 0.2703,
+        "reward": 0.2691,
         "s_test": 1.0,
-        "green_total": 0.3861,
+        "green_total": 0.3844236602628918,
         "graphlet": 0.95,
-        "cpu_improvement": 0.0174,
-        "memory_improvement": 0.0,
-        "compliance": 0.0,
-        "co2_kg_per_year": 0.2023
-      },
-      {
-        "reward": 0.266,
-        "s_test": 1.0,
-        "green_total": 0.38,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.0,
-        "memory_improvement": 0.0,
-        "compliance": 0.0,
-        "co2_kg_per_year": 0.0289
-      },
-      {
-        "reward": 0.266,
-        "s_test": 1.0,
-        "green_total": 0.38,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.0,
+        "cpu_improvement": 0.012639029322547984,
         "memory_improvement": 0.0,
         "compliance": 0.0,
         "co2_kg_per_year": 0.0
@@ -70,156 +60,466 @@
         "co2_kg_per_year": 0.0
       },
       {
-        "reward": 0.2665,
+        "reward": 0.266,
         "s_test": 1.0,
-        "green_total": 0.3807,
+        "green_total": 0.38,
         "graphlet": 0.95,
-        "cpu_improvement": 0.0021,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.2601
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.2693,
+        "s_test": 1.0,
+        "green_total": 0.3846528803545052,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.013293943870014837,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 1.9288
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.2917,
+        "s_test": 1.0,
+        "green_total": 0.41676111382510994,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.10503175378602836,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.2699,
+        "s_test": 1.0,
+        "green_total": 0.38554675118858955,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.015847860538827273,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.3901
+      },
+      {
+        "reward": 0.2849,
+        "s_test": 1.0,
+        "green_total": 0.40701398938736133,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.07718282682103228,
         "memory_improvement": 0.0,
         "compliance": 0.0,
         "co2_kg_per_year": 0.2673
       },
       {
-        "reward": 0.2665,
-        "s_test": 1.0,
-        "green_total": 0.3807,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.002,
-        "memory_improvement": 0.0,
-        "compliance": 0.0,
-        "co2_kg_per_year": 0.0
-      },
-      {
-        "reward": 0.2717,
-        "s_test": 1.0,
-        "green_total": 0.3882,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.0233,
-        "memory_improvement": 0.0,
-        "compliance": 0.0,
-        "co2_kg_per_year": 0.0
-      },
-      {
-        "reward": 0.2681,
-        "s_test": 1.0,
-        "green_total": 0.383,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.0085,
-        "memory_improvement": 0.0,
-        "compliance": 0.0,
-        "co2_kg_per_year": 0.0
-      },
-      {
-        "reward": 0.295,
-        "s_test": 1.0,
-        "green_total": 0.4215,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.1185,
-        "memory_improvement": 0.0,
-        "compliance": 0.0,
-        "co2_kg_per_year": 0.0
-      }
-    ],
-    "oracle": [
-      {
-        "reward": 0.5238,
-        "s_test": 1.0,
-        "green_total": 0.3969,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.0483,
-        "memory_improvement": 0.0,
-        "compliance": 0.82,
-        "co2_kg_per_year": 0.0
-      },
-      {
-        "reward": 0.5707,
-        "s_test": 1.0,
-        "green_total": 0.4638,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.1642,
-        "memory_improvement": 0.1051,
-        "compliance": 0.82,
-        "co2_kg_per_year": 2.6656
-      },
-      {
-        "reward": 0.5302,
-        "s_test": 1.0,
-        "green_total": 0.406,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.0744,
-        "memory_improvement": 0.0,
-        "compliance": 0.82,
-        "co2_kg_per_year": 1.3075
-      },
-      {
-        "reward": 0.5135,
-        "s_test": 1.0,
-        "green_total": 0.3821,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.006,
-        "memory_improvement": 0.0,
-        "compliance": 0.82,
-        "co2_kg_per_year": 2.2105
-      },
-      {
-        "reward": 0.5499,
-        "s_test": 1.0,
-        "green_total": 0.4342,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.1396,
-        "memory_improvement": 0.0215,
-        "compliance": 0.82,
-        "co2_kg_per_year": 2.0516
-      },
-      {
-        "reward": 0.5137,
-        "s_test": 1.0,
-        "green_total": 0.3824,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.0068,
-        "memory_improvement": 0.0,
-        "compliance": 0.82,
-        "co2_kg_per_year": 0.0
-      },
-      {
-        "reward": 0.5471,
-        "s_test": 1.0,
-        "green_total": 0.4301,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.1432,
-        "memory_improvement": 0.0,
-        "compliance": 0.82,
-        "co2_kg_per_year": 0.9536
-      },
-      {
-        "reward": 0.512,
+        "reward": 0.266,
         "s_test": 1.0,
         "green_total": 0.38,
         "graphlet": 0.95,
         "cpu_improvement": 0.0,
         "memory_improvement": 0.0,
-        "compliance": 0.82,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 1.4231
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 2.9329
+      },
+      {
+        "reward": 0.293,
+        "s_test": 1.0,
+        "green_total": 0.4186397240019714,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.11039921143420403,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.3684
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.1011
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.6502
+      },
+      {
+        "reward": 0.2708,
+        "s_test": 1.0,
+        "green_total": 0.38678879310344827,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.01939655172413795,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.2764,
+        "s_test": 1.0,
+        "green_total": 0.3948686416992733,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.04248183342649516,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.266,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.0,
+        "co2_kg_per_year": 0.0144
+      }
+    ],
+    "oracle": [
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.5297,
+        "s_test": 1.0,
+        "green_total": 0.39664924202822793,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.047569262937794024,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.5349,
+        "s_test": 1.0,
+        "green_total": 0.40411347517730495,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.06889564336372841,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.614
+      },
+      {
+        "reward": 0.5248,
+        "s_test": 1.0,
+        "green_total": 0.38976394849785406,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.02789699570815453,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.5195,
+        "s_test": 1.0,
+        "green_total": 0.382122381477398,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.006063947078280111,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.5228,
+        "s_test": 1.0,
+        "green_total": 0.3869101678183613,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.019743336623889347,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.8813
+      },
+      {
+        "reward": 0.5345,
+        "s_test": 1.0,
+        "green_total": 0.40360756259580993,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.06745017884517124,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 1.0691
+      },
+      {
+        "reward": 0.537,
+        "s_test": 1.0,
+        "green_total": 0.407170582226762,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.07763023493360567,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.9319
+      },
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0939
+      },
+      {
+        "reward": 0.5255,
+        "s_test": 1.0,
+        "green_total": 0.39067859021567597,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0305102577590742,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.4696
+      },
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 1.5315
+      },
+      {
+        "reward": 0.5197,
+        "s_test": 1.0,
+        "green_total": 0.3824189261031366,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0069112174375331745,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.1662
+      },
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0867
+      },
+      {
+        "reward": 0.5323,
+        "s_test": 1.0,
+        "green_total": 0.40041666666666664,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.05833333333333327,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 1.4809
+      },
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.8308
+      },
+      {
+        "reward": 0.5603,
+        "s_test": 1.0,
+        "green_total": 0.4403878733838609,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.17253678109674533,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.8163
+      },
+      {
+        "reward": 0.5214,
+        "s_test": 1.0,
+        "green_total": 0.38484300159659396,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.013837147418839821,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 1.0186
+      },
+      {
+        "reward": 0.5218,
+        "s_test": 1.0,
+        "green_total": 0.3853781512605042,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.02151260504201668,
+        "compliance": 0.84,
+        "co2_kg_per_year": 5.678
+      },
+      {
+        "reward": 0.5397,
+        "s_test": 1.0,
+        "green_total": 0.4109859154929577,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.08853118712273639,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.5635
+      },
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.1228
+      },
+      {
+        "reward": 0.5197,
+        "s_test": 1.0,
+        "green_total": 0.38242666666666664,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.00693333333333328,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 2.4923
+      },
+      {
+        "reward": 0.5322,
+        "s_test": 1.0,
+        "green_total": 0.4003077699293643,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.05802219979818365,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
+        "co2_kg_per_year": 0.0
+      },
+      {
+        "reward": 0.518,
+        "s_test": 1.0,
+        "green_total": 0.38,
+        "graphlet": 0.95,
+        "cpu_improvement": 0.0,
+        "memory_improvement": 0.0,
+        "compliance": 0.84,
         "co2_kg_per_year": 0.0
       },
       {
         "reward": 0.5441,
         "s_test": 1.0,
-        "green_total": 0.4258,
+        "green_total": 0.41733333333333333,
         "graphlet": 0.95,
-        "cpu_improvement": 0.1309,
+        "cpu_improvement": 0.10666666666666666,
         "memory_improvement": 0.0,
-        "compliance": 0.82,
-        "co2_kg_per_year": 1.1558
-      },
-      {
-        "reward": 0.5406,
-        "s_test": 1.0,
-        "green_total": 0.4209,
-        "graphlet": 0.95,
-        "cpu_improvement": 0.1168,
-        "memory_improvement": 0.0,
-        "compliance": 0.82,
-        "co2_kg_per_year": 0.6213
+        "compliance": 0.84,
+        "co2_kg_per_year": 1.8349
       }
     ]
   }

@@ -29,53 +29,44 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from environment.episode_generator import EpisodeGenerator
-from environment.track_b import ComplianceChecker
 from environment.track_c import GreenCodeEvaluator
 from environment.co2_calculator import generate_dashboard_data
+from environment.rubrics import build_green_rubric, CodeAction, CodeObservation
 
 
 BASE_DIR = ROOT / "environment" / "base_codebase"
 STANDARDS = ROOT / "environment" / "ENGINEERING_STANDARDS.md"
 
-
-def _binary_test(files: dict) -> float:
-    import ast
-    for content in files.values():
-        try:
-            ast.parse(content)
-        except SyntaxError:
-            return 0.0
-    return 1.0
-
-
-def _compliance_score(orig: dict, updated: dict, rules_active: list) -> float:
-    """Mirrors the compliance computation in training/train_grpo.py."""
-    checker = ComplianceChecker(str(STANDARDS))
-    checker.reset(orig, rules_active)
-    for fname in updated:
-        if fname in orig and updated[fname] != orig[fname]:
-            checker.step({"tool": "edit_file", "args": {"filename": fname}},
-                         f"Edited {fname}")
-    return checker.get_score()
+# One rubric instance shared across baselines for apples-to-apples comparison.
+RUBRIC = build_green_rubric()
 
 
 def _score(orig: dict, updated: dict, rules_active: list) -> dict:
-    """Identical scoring formula to training/train_grpo.py."""
-    s_test = _binary_test(updated)
-    green = GreenCodeEvaluator().evaluate(orig, updated)
-    compliance = _compliance_score(orig, updated, rules_active)
+    """Score via the canonical Green-Code Rubric (same one used in training).
 
-    blended = 0.70 * green.total + 0.30 * compliance
-    reward = s_test * blended
+    Pulls per-component scores from `rubric.named_rubrics()` so the breakdown
+    stays in sync with the training pipeline — no duplicate scoring logic.
+    """
+    reward = RUBRIC(
+        action=CodeAction(updated_files=updated),
+        observation=CodeObservation(
+            orig_files=orig, active_rules=rules_active, standards_path=str(STANDARDS),
+        ),
+    )
+    children = dict(RUBRIC.named_rubrics())
+
+    # CO₂ savings — separate from rubric (it's a presentation metric).
+    green = GreenCodeEvaluator().evaluate(orig, updated)
     co2 = generate_dashboard_data(green, orig, updated)["co2_savings"]
+
     return {
         "reward": round(reward, 4),
-        "s_test": s_test,
-        "green_total": green.total,
-        "graphlet": green.graphlet_score,
-        "cpu_improvement": green.cpu_improvement,
-        "memory_improvement": green.memory_improvement,
-        "compliance": round(compliance, 4),
+        "s_test": children["syntax_gate"].last_score or 0.0,
+        "green_total": children["green"].last_score or 0.0,
+        "graphlet": children["green.graphlet"].last_score or 0.0,
+        "cpu_improvement": children["green.cpu"].last_score or 0.0,
+        "memory_improvement": children["green.memory"].last_score or 0.0,
+        "compliance": round(children["compliance"].last_score or 0.0, 4),
         "co2_kg_per_year": co2["kg_per_year"],
     }
 
@@ -189,6 +180,8 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
+        nice_label = {"noop": "No-op\n(unchanged)", "oracle": "Oracle\n(ceiling)",
+                      "trained": "Trained\nAgent"}
         labels = list(summary.keys())
         rewards = [summary[k]["mean_reward"] for k in labels]
         greens = [summary[k]["mean_green"] for k in labels]
@@ -197,27 +190,46 @@ def main():
         x = range(len(labels))
         width = 0.27
 
-        fig, ax = plt.subplots(figsize=(9, 5))
-        bars1 = ax.bar([i - width for i in x], rewards, width, label="reward", color="#10b981")
-        bars2 = ax.bar(list(x), greens, width, label="green", color="#34d399")
-        bars3 = ax.bar([i + width for i in x], compliances, width, label="compliance", color="#a7f3d0")
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars1 = ax.bar([i - width for i in x], rewards, width,
+                       label="Reward (rubric output)", color="#059669", edgecolor="white")
+        bars2 = ax.bar(list(x), greens, width,
+                       label="Green score = 0.40·graphlet + 0.35·CPU + 0.25·mem",
+                       color="#34d399", edgecolor="white")
+        bars3 = ax.bar([i + width for i in x], compliances, width,
+                       label="Compliance score (engineering rules)",
+                       color="#a7f3d0", edgecolor="white")
 
         for bars in (bars1, bars2, bars3):
             for b in bars:
                 h = b.get_height()
-                ax.text(b.get_x() + b.get_width()/2, h + 0.01, f"{h:.2f}",
-                        ha="center", va="bottom", fontsize=9)
+                ax.text(b.get_x() + b.get_width()/2, h + 0.012, f"{h:.2f}",
+                        ha="center", va="bottom", fontsize=9, fontweight="bold")
 
         ax.set_xticks(list(x))
-        ax.set_xticklabels([l.title() for l in labels])
-        ax.set_ylabel("Mean score")
-        ax.set_ylim(0, 1.05)
-        ax.set_title(f"Baseline vs. Trained Agent — {args.num_episodes} episodes")
-        ax.legend(loc="upper left")
-        ax.grid(True, axis="y", alpha=0.3)
-        plt.tight_layout()
+        ax.set_xticklabels([nice_label.get(l, l.title()) for l in labels], fontsize=11)
+        ax.set_ylabel("Score (range 0.0 – 1.0, higher = better)", fontsize=11)
+        ax.set_xlabel("Agent (averaged over fresh episodes)", fontsize=11)
+        ax.set_ylim(0, 1.10)
+        ax.set_title(
+            f"Green-Code Optimizer — Baseline Comparison ({args.num_episodes} episodes)",
+            fontsize=13, fontweight="bold", pad=14,
+        )
+        ax.legend(loc="upper left", fontsize=9, framealpha=0.95)
+        ax.grid(True, axis="y", alpha=0.3, linestyle="--")
+        ax.set_axisbelow(True)
+
+        # Caption with run metadata
+        caption = (
+            f"Bars: mean over {args.num_episodes} freshly generated episodes. "
+            f"Reward = 0.70·green + 0.30·compliance, gated by syntax/hack checks."
+        )
+        fig.text(0.5, 0.01, caption, ha="center", fontsize=8, style="italic",
+                 color="#475569")
+
+        plt.tight_layout(rect=[0, 0.03, 1, 1])
         out = assets / "baseline_vs_trained.png"
-        plt.savefig(out, dpi=150)
+        plt.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"📊 Saved {out}")
     except Exception as e:

@@ -271,7 +271,9 @@ def root():
             "GET /health/green": "Green-code subsystem status",
             "GET /docs": "Interactive API documentation (Swagger UI)",
             "POST /reset": "Start a new episode (corrupted codebase + active rules)",
-            "POST /step": "Submit an edit — receive new state + reward",
+            "POST /step": "Submit an edit — receive new state + reward (Gym API)",
+            "GET /state/{episode_id}": "Episode metadata (Gym API: reset/step/state)",
+            "GET /rubric": "Composable rubric tree (named children, formula)",
             "POST /infer": "Run the trained agent (requires GPU)",
             "GET /dashboard/co2/{episode_id}": "CO₂-savings dashboard (HTML for browsers, JSON for clients)",
         },
@@ -287,8 +289,67 @@ def health():
         "environment": "green-code-optimizer",
         "gpu_available": gpu_available,
         "inference_ready": gpu_available,
-        "endpoints": ["/reset", "/step", "/infer", "/health", "/health/green", "/dashboard/co2/{episode_id}"],
+        "endpoints": ["/reset", "/step", "/state", "/rubric", "/infer", "/health",
+                      "/health/green", "/dashboard/co2/{episode_id}"],
     }
+
+
+@app.get("/state")
+@app.get("/state/{episode_id}")
+def get_state(episode_id: Optional[str] = None):
+    """Gym-style state endpoint (RFC 001).
+
+    Returns episode metadata for the active episode. With no `episode_id`,
+    returns a summary of all active episodes — useful for monitoring.
+    """
+    if episode_id is None:
+        return {
+            "active_episodes": list(active_episodes.keys()),
+            "n_active": len(active_episodes),
+        }
+    if episode_id not in active_episodes:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    ctx = active_episodes[episode_id]
+    return {
+        "episode_id": episode_id,
+        "step_count": ctx.steps_taken,
+        "steps_remaining": ctx.steps_remaining,
+        "done": ctx.steps_remaining <= 0 or ctx.hack_detected,
+        "hack_detected": ctx.hack_detected,
+        "hack_reason": ctx.hack_reason,
+        "n_files": len(ctx.files),
+        "curriculum_level": getattr(ctx.generator.curriculum, "level", None),
+    }
+
+
+@app.get("/rubric")
+def get_rubric_tree():
+    """Expose the composable rubric tree as JSON.
+
+    Returns the named children of the Green-Code Rubric so judges (and
+    training infrastructure) can introspect what the agent is being scored on.
+    """
+    try:
+        from environment.rubrics import build_green_rubric, OPENENV_AVAILABLE
+        rubric = build_green_rubric()
+        children = [
+            {"path": name, "type": child.__class__.__name__}
+            for name, child in rubric.named_rubrics()
+        ]
+        return {
+            "openenv_core": OPENENV_AVAILABLE,
+            "root": rubric.__class__.__name__,
+            "formula": (
+                "R = (syntax_gate ∧ hack_gate) × "
+                "(0.70·green + 0.30·compliance)"
+            ),
+            "green_formula": (
+                "green = 0.40·graphlet + 0.35·cpu + 0.25·memory"
+            ),
+            "children": children,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/health/green")

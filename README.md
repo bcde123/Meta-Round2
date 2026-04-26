@@ -116,14 +116,32 @@ Lower total cost → higher graphlet score (range `[0, 1]`).
 ### 3. Runtime Profiling — `environment/track_c.py`
 Each candidate refactor is **actually executed** in a sandbox: CPU time via `timeit`, peak memory via `tracemalloc`. Improvements vs. the original are clamped to `[0, 1]`.
 
-### 4. Reward Function — `training/train_grpo.py`
+### 4. Composable Rubric — `environment/rubrics.py`
+
+Following [OpenEnv RFC 004](https://github.com/meta-pytorch/OpenEnv/blob/main/rfcs/004-rubrics.md), the reward is a tree of named, composable child rubrics — modeled on PyTorch's `nn.Module`. When `openenv-core` is installed we extend its `Rubric` base class directly; otherwise we provide a zero-dependency fallback shim with the same surface area.
+
 ```
-R = S_test × (0.70·green_score + 0.30·compliance_score) − P_efficiency
+GreenCodeRubric                       (root)
+└─ Sequential                         ← short-circuits if any gate fails
+   ├─ syntax_gate     {0,1}           ← reward = 0 if any file doesn't parse
+   ├─ hack_gate       {0,1}           ← reward = -1 if test files are tampered with
+   └─ WeightedSum                     ← soft signals
+      ├─ green       (0.70)
+      │  ├─ graphlet (0.40) ∈ [0,1]
+      │  ├─ cpu      (0.35) ∈ [0,1]
+      │  └─ memory   (0.25) ∈ [0,1]
+      └─ compliance  (0.30)
 ```
-- **`S_test ∈ {0, 1}`** — hard gate: if the refactored code doesn't parse, the agent gets **0**. No reward for "cleaner" code that doesn't work.
-- **`green_score`** (70 %) — composite of `graphlet_score`, `cpu_improvement`, `memory_improvement`.
-- **`compliance_score`** (30 %) — secondary correctness signal from 150 engineering rules.
-- **`P_efficiency`** — `0.01` per file edited; pushes the agent toward minimal, surgical edits.
+
+Each child is independently inspectable via `rubric.named_rubrics()`, so training infrastructure logs every component without modifying the rubric. Adding a new signal (e.g. a Big-O complexity penalty) is a 5-line subclass + `WeightedSum` weight tweak.
+
+The rubric tree is also exposed at runtime via `GET /rubric` so judges can introspect the reward without touching server internals.
+
+```
+R = (syntax_gate ∧ hack_gate) × (0.70·green + 0.30·compliance) − P_efficiency
+```
+- **Why this is hard to game** — the `Sequential` short-circuits any soft reward when the syntax gate fails. Agents can't get points for "memory-efficient" code that doesn't compile.
+- **`P_efficiency`** — `0.01` per file edited; held outside the rubric (it's a training-time minimal-edits nudge, not a property of the env).
 
 ### 5. CO₂ Dashboard — `environment/co2_calculator.py`
 CPU-time savings × CPU TDP × grid carbon intensity → kg CO₂/year, with real-world equivalents (tree-years, car-km). Live HTML dashboard at `/dashboard/co2/{episode_id}`.
@@ -179,21 +197,33 @@ After running `training/train_grpo.py` on A100 (~25 min):
 | 📓 **Colab Training Notebook** | [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb) |
 | 📊 **Training plots** | [`assets/training_curves.png`](assets/training_curves.png) |
 | 📊 **Baseline-vs-trained plot** | [`assets/baseline_vs_trained.png`](assets/baseline_vs_trained.png) |
-| 📝 **Blog Post (writeup)** | _TODO: paste HF blog URL here_ |
+| 📝 **Writeup / Blog Post** | [`blog_post.md`](blog_post.md) — full problem-to-results narrative |
 | 🎥 **2-min Video Demo** | _TODO: paste YouTube URL here_ |
 
 ---
 
 ## 🧩 OpenEnv Compatibility
 
-This env follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec.
+This env follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec (RFC 001 + RFC 004).
 
 - **Manifest:** [`openenv.yaml`](openenv.yaml)
-- **Endpoints:** `POST /reset`, `POST /step`, `GET /health`
+- **Server:** uses `openenv-core>=0.2.3` for the `Rubric` base class
+- **Gym-style API:** `POST /reset`, `POST /step`, `GET /state/{id}`
+- **Rubric introspection:** `GET /rubric` returns the named child tree
+- **Sync client:** [`client.py`](client.py) — drop-in `EnvClient`, mirrors `HTTPEnvClient`
 - **Observation space:** `{ files, violation_report, steps_remaining, curriculum_level }`
 - **Action space:** `[read_file, edit_file, run_tests, check_compliance]`
 - **Reward range:** `[-1.0, 1.0]`
 - **Max episode length:** 70 steps
+
+```python
+# Three-line judge-friendly usage:
+from client import GreenCodeEnv
+env = GreenCodeEnv("https://shreeyanshi03-green-code-optimizer-a100.hf.space")
+obs = env.reset(curriculum_level=2)        # gym-style reset
+state = env.state()                         # gym-style state
+print(env.rubric_tree())                    # introspect the reward
+```
 
 ---
 
@@ -203,11 +233,13 @@ This env follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec.
 |----------|--------|-------------|
 | `/demo` | GET | **🌱 Start here** — live before/after demo |
 | `/dashboard/co2/{episode_id}` | GET | **CO₂-savings dashboard** (HTML for browsers, JSON otherwise) |
+| `/rubric` | GET | **Rubric tree** — named children + formula |
 | `/` | GET | Project info |
 | `/health` · `/health/green` | GET | Health checks |
 | `/docs` | GET | Swagger UI |
-| `/reset` | POST | Start a new episode |
-| `/step` | POST | Submit an edit |
+| `/reset` | POST | Start a new episode (Gym API) |
+| `/step` | POST | Submit an edit (Gym API) |
+| `/state/{episode_id}` | GET | Episode metadata (Gym API) |
 | `/infer` | POST | Run trained agent (GPU) |
 
 ---
@@ -243,11 +275,14 @@ SPACE_URL=https://s123hree-constrained-refactor-gauntlet-a100.hf.space \
 
 ```
 .
-├── server.py                    # FastAPI: /reset /step /infer /demo /dashboard
+├── server.py                    # FastAPI: /reset /step /state /rubric /demo /dashboard
+├── client.py                    # Sync EnvClient — mirrors OpenEnv HTTPEnvClient
 ├── inference.py                 # Loads adapter from HF Hub, runs predictions
 ├── openenv.yaml                 # OpenEnv manifest
 ├── Dockerfile                   # HF Space image
+├── blog_post.md                 # Writeup (problem → env → rubric → results)
 ├── environment/
+│   ├── rubrics.py               # ⭐ Composable Rubric tree (RFC 004)
 │   ├── episode_generator.py     # Corruption pipeline + curriculum
 │   ├── track_a.py               # Code-quality evaluator
 │   ├── track_b.py               # Compliance checker
@@ -272,9 +307,26 @@ SPACE_URL=https://s123hree-constrained-refactor-gauntlet-a100.hf.space \
 
 ## 🤝 Extending the Env
 
+- **New reward signal** → write a 5-line `Rubric` subclass and add it to the `WeightedSum` in `environment/rubrics.py::build_green_rubric`. Every leaf is auto-logged via `named_rubrics()`.
 - **New graphlet patterns** → add to `PATTERN_COSTS` in `environment/graphlet_analyzer.py`.
 - **New energy-degrading corruptions** → add a method to `EpisodeGenerator` and append it to `energy_corruptions` list.
 - **Tune carbon constants** for your region's grid → `environment/co2_calculator.py`.
+
+```python
+# Drop-in custom rubric example:
+from environment.rubrics import Rubric, build_green_rubric, WeightedSum
+
+class BigOPenalty(Rubric):
+    def forward(self, action, observation) -> float:
+        # ... your big-O analysis ...
+        return score   # range [0, 1]
+
+base = build_green_rubric()
+base.green = WeightedSum(
+    [base.green.graphlet, base.green.cpu, base.green.memory, BigOPenalty()],
+    weights=[0.30, 0.30, 0.20, 0.20],
+)
+```
 
 ---
 
