@@ -18,3 +18,4 @@ bitsandbytes
 unsloth
 vllm
 triton
+hf_transfer
