@@ -30,11 +30,18 @@ ADAPTER_LOCAL_PATH = os.getenv(
 HF_TOKEN = os.getenv("HF_TOKEN", None)
 
 SYSTEM_PROMPT = (
-    "You are an expert Python refactoring agent. Your task is to clean up the provided codebase, "
-    "improve its quality (tests, linting, complexity), and fix compliance issues.\n"
-    "You must return your edited files using the following exact XML format:\n"
+    "You are an expert Python refactoring agent focused on ENERGY EFFICIENCY.\n"
+    "Your goal: minimise CPU cycles and peak memory while preserving program logic.\n"
+    "Specifically prefer:\n"
+    "  • List/dict/set comprehensions over append-loops\n"
+    "  • Vectorised / built-in operations (sum, map) over manual accumulation\n"
+    "  • Hoisting loop-invariant work outside the loop\n"
+    "  • Eliminating dead code and redundant computation\n"
+    "  • Flattening unnecessarily nested loops\n"
+    "Do NOT alter test files or break any existing assertions.\n"
+    "Return edited files using EXACTLY this XML format:\n"
     '<file name="filename.py">\n... complete new code ...\n</file>\n'
-    "Do not omit any code inside the file block. Provide the full updated file."
+    "Provide the full updated file content (do not omit any code)."
 )
 
 

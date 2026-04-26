@@ -23,7 +23,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-import ast as _ast
 import uuid
 import torch
 
@@ -32,6 +31,7 @@ from environment.track_a import CodeQualityEvaluator
 from environment.track_b import ComplianceChecker
 from environment.track_c import GreenCodeEvaluator
 from environment.co2_calculator import generate_dashboard_data
+from environment.rubrics import build_green_rubric, CodeAction, CodeObservation
 
 app = FastAPI(
     title="Green-Code Optimizer",
@@ -69,6 +69,8 @@ class EpisodeContext:
         self.track_b = ComplianceChecker(os.path.join(os.path.dirname(base_dir), "ENGINEERING_STANDARDS.md"))
         self.files = {}
         self.orig_files = {}  # immutable baseline for comparison
+        self.active_rules = []
+        self.standards_path = os.path.join(os.path.dirname(base_dir), "ENGINEERING_STANDARDS.md")
         self.steps_remaining = 70
         self.steps_taken = 0
         self.hack_detected = False
@@ -87,6 +89,7 @@ async def reset_env(req: Optional[ResetRequest] = None):
     episode_id = episode_data["episode_id"]
     ctx.files = episode_data["files"]
     ctx.orig_files = {k: v for k, v in ctx.files.items()}  # snapshot
+    ctx.active_rules = episode_data["rules_active"]
     
     ctx.track_a.evaluate(ctx.files)
     report = ctx.track_b.reset(ctx.files, episode_data["rules_active"])
@@ -183,34 +186,30 @@ async def step_env(req: ActionRequest):
     reward = None
     info = {}
     if done:
-        # ── Binary execution gate (S_test) ───────────────────────────────────
+        # ── Code-quality telemetry (not used directly in the reward) ─────────
         code_score = ctx.track_a.evaluate(ctx.files)
-        s_test = 1.0 if code_score.test_pass_rate == 1.0 else 0.0
-        
-        # Also verify all files parse (AST gate)
-        for content in ctx.files.values():
-            try:
-                _ast.parse(content)
-            except SyntaxError:
-                s_test = 0.0
-                break
-
-        # ── Compliance score ─────────────────────────────────────────────────
-        compliance_score = ctx.track_b.get_score()
-
-        # ── Green-code score (Track C) ───────────────────────────────────────
-        green_evaluator = GreenCodeEvaluator()
-        green_result = green_evaluator.evaluate(ctx.orig_files, ctx.files)
-        score_c = green_result.total
 
         # ── Efficiency penalty ───────────────────────────────────────────────
         p_efficiency = EFFICIENCY_PENALTY_PER_STEP * ctx.steps_taken
 
-        # ── Multiplicative reward ────────────────────────────────────────────
-        # R = (S_test) × (0.85 × compliance + 0.15 × green) - P_efficiency
-        blended_compliance = 0.85 * compliance_score + 0.15 * score_c
-        reward = (s_test * blended_compliance) - p_efficiency
-        
+        # ── Canonical Green-Code Rubric ──────────────────────────────────────
+        # Single source of truth shared by training, baselines, and /step:
+        # R = (syntax_gate ∧ hack_gate) × (0.70·green + 0.30·compliance)
+        rubric = build_green_rubric()
+        rubric_score = rubric(
+            action=CodeAction(updated_files=ctx.files),
+            observation=CodeObservation(
+                orig_files=ctx.orig_files,
+                active_rules=ctx.active_rules,
+                standards_path=ctx.standards_path,
+            ),
+        )
+        rubric_children = dict(rubric.named_rubrics())
+        s_test = rubric_children["syntax_gate"].last_score or 0.0
+        green_score = rubric_children["green"].last_score or 0.0
+        compliance_score = rubric_children["compliance"].last_score or 0.0
+        reward = rubric_score - p_efficiency
+
         info = {
             "final_reward": reward,
             "s_test": s_test,
@@ -222,7 +221,11 @@ async def step_env(req: ActionRequest):
                 "total": code_score.total
             },
             "compliance_score": compliance_score,
-            "green_score": score_c,
+            "green_score": green_score,
+            "rubric": {
+                name: child.last_score
+                for name, child in rubric_children.items()
+            },
             "efficiency_penalty": p_efficiency,
             "steps_taken": ctx.steps_taken,
         }
@@ -590,9 +593,9 @@ async def infer(req: InferRequest):
             status_code=503,
             content={
                 "error": "GPU required for inference",
-                "detail": "This Space runs on CPU. The 7B model requires GPU for inference.",
+                "detail": "This Space runs on CPU. Inference requires GPU even on the 1.5B model.",
                 "alternatives": {
-                    "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter",
+                    "adapter": "https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b",
                     "base_model": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
                     "instructions": "Load the adapter with peft and run inference on a GPU machine.",
                 },

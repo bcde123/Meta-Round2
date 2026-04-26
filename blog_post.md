@@ -1,18 +1,17 @@
 # Green-Code Optimizer: Teaching an LLM to Write Code that Burns Less Carbon
 
-> *Submission for the OpenEnv India Hackathon 2026 — built on top of [meta-pytorch/OpenEnv](https://github.com/meta-pytorch/OpenEnv).*
-> *Live demo: [shreeyanshi03-green-code-optimizer.hf.space/demo](https://huggingface.co/spaces/shreeyanshi03/green-code-optimizer-a100)*
-> *Trained adapter: [shreeyanshi03/constrained-refactor-adapter-1.5b](https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b)*
+> *Submission for the OpenEnv India Hackathon 2026 — built on top of meta-pytorch/OpenEnv.*
+> *HF Space: [s123hree/constrained-refactor-gauntlet-a100](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100).*
 
 ---
 
 ## TL;DR
 
-Most "AI refactoring" agents optimize for **readability** — clean variable names, neat formatting, fewer lines. We trained one that optimizes for **energy efficiency** — fewer CPU cycles, less peak memory, lower CO₂ — without changing what the program *does*.
+Most "AI refactoring" agents optimize for **readability** — clean variable names, neat formatting, fewer lines. We built an environment to train one that optimizes for **energy efficiency** — fewer CPU cycles, less peak memory, lower CO₂ — without changing what the program *does*.
 
 Concretely: we built an OpenEnv RL environment where every episode hands the agent a Python codebase that has been deliberately corrupted with energy-degrading patterns (nested loops where comprehensions belong, invariants hoisted into hot loops, dead code bloat). The agent's job is to refactor it back into a fast, low-memory, lint-clean version. The reward is a composable **Rubric** that mixes a graphlet score, CPU time, peak memory, and engineering-rule compliance — gated by a syntax check so reward hacking is structurally hard.
 
-After 200 GRPO steps on a Qwen-2.5-Coder-1.5B adapter, the trained agent more than **doubles the no-op baseline reward** (0.27 → ~0.53, hitting the oracle ceiling) and saves ~**0.83 kg of CO₂ per year per refactored function** measured against the original corrupted code.
+The environment already shows a clear learnable gap: a no-op policy scores **0.27**, while the oracle ceiling reaches **~0.53** and saves ~**0.83 kg of CO₂ per year per refactored function** measured against the original corrupted code. The final trained-agent row should be filled after the A100 GRPO run commits `assets/training_curves.png`.
 
 ![System architecture — at a glance](assets/system_architecture_diagram.png)
 *The full system: an RL agent (Qwen-2.5-Coder-1.5B) talks to a FastAPI environment server which serves corrupted Python codebases. The Evaluation Engine scores each refactor across three tracks (code quality, compliance, green-code), feeds the reward to a GRPO trainer, and emits a CO₂ dashboard alongside.*
@@ -28,7 +27,7 @@ The carbon cost of software at runtime is enormous and invisible:
 - The IT sector accounts for ~2% of global CO₂ emissions ([Andrae & Edler, 2015](https://www.mdpi.com/2078-1547/6/1/117)). A non-trivial fraction of that is wasted on inefficient code paths that an experienced developer would refactor away.
 - Modern code-completion tools (Copilot, Cursor, Codeium) optimize for "what humans want to see" — readable, idiomatic, well-formatted. Energy is never in the loss function.
 
-**There's a real capability gap here**: an LLM that, when shown a hot loop, instinctively reaches for vectorisation / hoisting / comprehensions instead of just *prettifying* the existing structure. That's what we trained.
+**There's a real capability gap here**: an LLM that, when shown a hot loop, instinctively reaches for vectorisation / hoisting / comprehensions instead of just *prettifying* the existing structure. That's what this environment trains.
 
 ---
 
@@ -43,7 +42,7 @@ Existing code-RL benchmarks (HumanEval, MBPP, APPS) reward correctness and pass-
 So we built `green-code-optimizer` on top of OpenEnv:
 
 - **`environment/episode_generator.py`** procedurally corrupts a small base codebase with energy-degrading patterns. A *curriculum* escalates corruption intensity as the agent improves.
-- **`environment/track_c.py`** profiles each candidate refactor with `timeit` (CPU time) and `tracemalloc` (peak memory) on a fixed sample input, so the reward is grounded in real measurements, not heuristics.
+- **`environment/track_c.py`** profiles each candidate refactor with a timeout-bounded subprocess profiler (`time.perf_counter` for CPU time, `tracemalloc` for peak memory) on synthetic sample inputs, so the reward is grounded in real measurements, not heuristics.
 - **`environment/graphlet_analyzer.py`** lifts the AST into a control-flow graph and counts "expensive" graphlets (NestedLoop, LoopWithCall, DeepBranch). This catches structural mistakes the runtime profiler sometimes misses on small inputs.
 - **`environment/co2_calculator.py`** converts CPU-time savings into kg CO₂/year, tree-equivalents, and car-km equivalents — using grid carbon intensity (gCO₂/kWh) and CPU TDP as the conversion constants.
 
@@ -86,7 +85,7 @@ class GreenCodeRubric(Rubric):
 ```
 
 ![Green-score scoring pipeline](assets/co2_pipeline_diagram.png)
-*Each refactor flows through three parallel scoring streams: a control-flow graphlet analyzer (40% weight), a CPU-runtime measurement via `timeit` (35%), and peak-memory tracking via `tracemalloc` (25%). The weighted total is then converted into kg CO₂/year using a 15W CPU TDP and a 475 gCO₂/kWh grid carbon intensity (configurable per region).*
+*Each refactor flows through three parallel scoring streams: a control-flow graphlet analyzer (40% weight), timeout-bounded CPU-runtime profiling (35%), and peak-memory tracking via `tracemalloc` (25%). The weighted total is then converted into kg CO₂/year using a 15W CPU TDP and a 475 gCO₂/kWh grid carbon intensity (configurable per region).*
 
 Why this design matters:
 
@@ -121,21 +120,13 @@ Training step (single A100):
 
 ## 5. Did the agent actually learn? Evidence.
 
-The single most important slide in any RL paper is "trained vs baseline." We ship two:
+The single most important slide in any RL paper is "trained vs baseline." The repository currently ships the baseline-vs-oracle comparison below; the full A100 GRPO run will additionally write `assets/training_curves.png` and `assets/log_history.json`.
 
-### 5a. Reward over training
-
-![Training curves](https://huggingface.co/spaces/shreeyanshi03/green-code-optimizer-a100/resolve/main/assets/training_curves.png)
-
-*Left: policy loss per step. Right: mean episode reward per step, with no-op (gray dotted) and oracle ceiling (blue dashed) overlaid for context.*
-
-Reward climbs from random (~0.27, no-op) toward the oracle ceiling (~0.53) within the first ~80 steps and stabilises. Loss decreases monotonically.
-
-### 5b. Baseline comparison
+### 5a. Baseline comparison
 
 We compare three policies over **25 fresh episodes** with identical scoring:
 
-![Baseline vs trained](https://huggingface.co/spaces/shreeyanshi03/green-code-optimizer-a100/resolve/main/assets/baseline_vs_trained.png)
+![Baseline vs trained](assets/baseline_vs_trained.png)
 
 | Policy | Mean reward | Green score | Compliance | CO₂ saved (kg/yr) |
 |---|---|---|---|---|
@@ -145,7 +136,7 @@ We compare three policies over **25 fresh episodes** with identical scoring:
 
 The 0.27 → 0.53 gap proves the env actually contains an optimisation opportunity worth chasing. The compliance jump (0.00 → 0.84) shows engineering rules dominate the gap; the green score is similar because the corruptions are deliberately calibrated to be small in absolute CPU/memory terms (they wouldn't be subtle otherwise).
 
-### 5c. Concrete before/after
+### 5b. Concrete before/after
 
 A single episode rendered through `/demo`:
 
@@ -195,14 +186,12 @@ Three audiences should care:
 
 ---
 
-## Links
+## Submission Links
 
-- 🐙 **Code & env**: [github.com/...](https://huggingface.co/spaces/shreeyanshi03/green-code-optimizer-a100/tree/main)
-- 🤗 **HF Space (live)**: [shreeyanshi03/green-code-optimizer-a100](https://huggingface.co/spaces/shreeyanshi03/green-code-optimizer-a100)
-- 📓 **Colab notebook**: [`notebooks/train_grpo.ipynb`](./notebooks/train_grpo.ipynb)
-- 🧠 **Trained adapter**: [shreeyanshi03/constrained-refactor-adapter-1.5b](https://huggingface.co/shreeyanshi03/constrained-refactor-adapter-1.5b)
-- 🌍 **Live CO₂ dashboard**: visit `/demo` on the HF Space for an end-to-end pitch in 30 seconds.
+- 🐙 **Code & env (GitHub)**: [github.com/bcde123/Meta-Round2](https://github.com/bcde123/Meta-Round2)
+- 🤗 **HF Space (live)**: [s123hree/constrained-refactor-gauntlet-a100](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100)
+- 📝 **Blog post**: [blog_post.md on the HF Space repository](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100/blob/main/blog_post.md)
+
 
 ---
 
-*Built by Shreeyanshi. Thanks to the OpenEnv team for the Rubric primitive — it shaped the entire reward design here.*

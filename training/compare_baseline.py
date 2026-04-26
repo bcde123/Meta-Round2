@@ -90,15 +90,16 @@ def _trained_agent(episode, model, tokenizer):
     for fname, content in episode["files"].items():
         code_context += f"\n--- {fname} ---\n```python\n{content}\n```\n"
 
-    system = (
-        "You are an expert Python refactoring agent. Refactor the codebase "
-        "for energy efficiency: replace nested loops, hoist invariants, use "
-        "comprehensions. Preserve all logic. Return your edits as XML:\n"
-        '<file name="filename.py">\n... full new code ...\n</file>\n'
+    # Use the SAME prompt the agent was trained on so this baseline measures
+    # the trained policy faithfully (no prompt-distribution shift).
+    from inference import SYSTEM_PROMPT
+    user_prompt = (
+        "Refactor the following codebase for energy efficiency. "
+        f"Preserve all behaviour; just make it cheaper to run.\n{code_context}"
     )
     messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": code_context},
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
     ]
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tokenizer(text, return_tensors="pt").to(model.device)

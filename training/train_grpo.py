@@ -48,8 +48,6 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from environment.episode_generator import EpisodeGenerator
-from environment.track_b import ComplianceChecker
-from environment.track_c import GreenCodeEvaluator
 from environment.rubrics import (
     build_green_rubric,
     CodeAction,
@@ -57,10 +55,6 @@ from environment.rubrics import (
     OPENENV_AVAILABLE,
 )
 
-# Build the rubric once and reuse it across all reward computations.
-# When `openenv-core` is installed, GREEN_RUBRIC inherits from its `Rubric`
-# base class so OpenEnv training infrastructure can introspect named children.
-GREEN_RUBRIC = build_green_rubric()
 print(f"  Rubric ready (openenv-core integration: {OPENENV_AVAILABLE})")
 
 MODEL_NAME = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
@@ -126,28 +120,13 @@ PROTECTED_FILES = frozenset({"conftest.py", "test_main.py", "test_api.py",
 FORBIDDEN_NAMES = frozenset({"varelunixo", "xhackbypass", "__reward_stub__"})
 EFFICIENCY_PENALTY_PER_EDIT = 0.01   # Small cost per edited file
 HACK_PENALTY = -1.0                   # Immediate termination-level penalty
-TEST_WEIGHT = 1.0                     # Weight for the binary test gate
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BINARY EXECUTION GATE  (S_test)
-# ═══════════════════════════════════════════════════════════════════════════════
-def _binary_test_score(files: dict) -> float:
-    """Binary execution gate: 1.0 if ALL files parse, 0.0 otherwise.
-
-    This is intentionally brutal — a single SyntaxError in any file
-    zeroes out the entire reward via the multiplicative formula.
-    """
-    for content in files.values():
-        try:
-            ast.parse(content)
-        except SyntaxError:
-            return 0.0
-    return 1.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HACK DETECTION
+# Outer layer of defense — detects more reward-hacking patterns than the
+# rubric's `HackGateRubric` (which only checks protected-file edits). The
+# rubric's gate remains as a defense-in-depth fallback.
 # ═══════════════════════════════════════════════════════════════════════════════
 def _detect_hack(edits: dict, orig_files: dict) -> tuple:
     """Layered anti-cheat verification.
@@ -203,77 +182,27 @@ def _detect_hack(edits: dict, orig_files: dict) -> tuple:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# GRANULAR AST COMPLIANCE  (C_i per rule)
-# ═══════════════════════════════════════════════════════════════════════════════
-def _compute_granular_compliance(orig_files: dict, updated_files: dict,
-                                  active_rules: list) -> float:
-    """Per-rule compliance score: (1/N) * sum(C_i).
-
-    Each C_i is 1.0 if the corresponding structural constraint is
-    satisfied, 0.0 otherwise.  Uses the ComplianceChecker for rule-
-    engine evaluation and augments it with direct AST checks for
-    naming, forbidden patterns, and structural requirements.
-    """
-    evaluator_b = ComplianceChecker(STANDARDS_PATH)
-    evaluator_b.reset(orig_files, active_rules)
-
-    # Simulate edits so the rule engine can process resolutions
-    for fname in updated_files:
-        if fname in orig_files and updated_files[fname] != orig_files[fname]:
-            action = {"tool": "edit_file", "args": {"filename": fname}}
-            evaluator_b.step(action, f"Edited {fname}")
-
-    engine_score = evaluator_b.get_score()  # 0.0 – 1.0
-
-    # ── AST-level structural bonus checks ──────────────────────────────────
-    ast_checks_passed = 0
-    ast_checks_total = 0
-
-    for content in updated_files.values():
-        try:
-            tree = ast.parse(content)
-        except SyntaxError:
-            continue
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                ast_checks_total += 1
-                # Check: no single-letter function names (excluding standard ones)
-                if len(node.name) > 1 or node.name in ("_",):
-                    ast_checks_passed += 1
-
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                ast_checks_total += 1
-                if node.id not in FORBIDDEN_NAMES and len(node.id) > 1:
-                    ast_checks_passed += 1
-
-    if ast_checks_total > 0:
-        ast_ratio = ast_checks_passed / ast_checks_total
-    else:
-        ast_ratio = 1.0
-
-    # Blend: 70% rule-engine, 30% direct AST verification
-    return 0.70 * engine_score + 0.30 * ast_ratio
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MULTIPLICATIVE REWARD FUNCTION
-# R = (W_test * S_test) * compliance_score - P_efficiency - P_hack
+# COMPOSABLE-RUBRIC REWARD FUNCTION
+# R = (syntax_gate ∧ hack_gate) × (0.70·green + 0.30·compliance) − P_efficiency
+# Implemented in environment/rubrics.py; per-component scores are exposed via
+# `rubric.named_rubrics()` for logging.
 # ═══════════════════════════════════════════════════════════════════════════════
 def reward_function(completions, prompts, files, rules_active, **kwargs):
-    """Compute rewards for GRPO training using the multiplicative formulation.
+    """Compute rewards for GRPO training via the composable Green-Code Rubric.
 
-    Formula:
-        R_total = (W_test * S_test) × (1/N * Σ C_i) - P_efficiency - P_hack
+    Formula (via `environment/rubrics.py::build_green_rubric`):
+        R = (syntax_gate ∧ hack_gate) × (0.70·green + 0.30·compliance)
+            − P_efficiency + format_bonus
 
     Design principles:
-      • Binary test gate: if ANY file has a SyntaxError the multiplier is 0.
-      • Granular compliance: per-rule AST verification blended with the
-        rule-engine score.
-      • Efficiency penalty: 0.01 per file edited to encourage minimal edits.
-      • Hack penalty: -1.0 and immediate short-circuit for cheating attempts.
-      • A small format bonus is preserved to bootstrap early learning of the
-        required XML output structure.
+      • Hack outer-layer (`_detect_hack`) returns -1.0 immediately on cheating;
+        the rubric's own `hack_gate` is a defense-in-depth fallback.
+      • The rubric's `syntax_gate` zeroes the reward if any file fails to parse.
+      • `green` decomposes into graphlet (0.40), CPU (0.35), memory (0.25).
+      • `compliance` is the engineering-rule satisfaction fraction.
+      • `P_efficiency` (0.01 per edit) sits OUTSIDE the rubric — it's a
+        training-time minimal-edits nudge, not part of the env reward.
+      • `format_bonus` bootstraps early learning of the required XML structure.
     """
     t0 = time.time()
     rewards = []
@@ -327,7 +256,10 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
             #   syntax_gate ∧ hack_gate × (0.70·green + 0.30·compliance)
             # where green = 0.40·graphlet + 0.35·cpu + 0.25·memory.
             # All component scores are exposed via `named_rubrics()`.
-            rubric_score = GREEN_RUBRIC(
+            # Fresh rubric per completion keeps `last_score` logs accurate even
+            # when a gate short-circuits and downstream children are skipped.
+            rubric = build_green_rubric()
+            rubric_score = rubric(
                 action=CodeAction(updated_files=updated_files),
                 observation=CodeObservation(
                     orig_files=orig_files,
@@ -337,7 +269,7 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
             )
 
             # Pull individual component scores for logging
-            children = dict(GREEN_RUBRIC.named_rubrics())
+            children = dict(rubric.named_rubrics())
             s_test = children["syntax_gate"].last_score or 0.0
             green = children["green"].last_score or 0.0
             graphlet = children["green.graphlet"].last_score or 0.0
@@ -345,7 +277,11 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
             mem = children["green.memory"].last_score or 0.0
             compliance_score = children["compliance"].last_score or 0.0
 
-            reward = rubric_score - p_efficiency + format_bonus
+            # Format bonus only applies after the rubric gives a positive score.
+            # Broken or empty code must not earn points for merely using XML.
+            reward = rubric_score - p_efficiency
+            if rubric_score > 0:
+                reward += format_bonus
 
             print(
                 f"    [Reward] #{idx}: gate={s_test:.0f} | "
@@ -376,13 +312,23 @@ def create_training_dataset(num_episodes=50):
             if len(code_context) + len(file_block) > 8000: break
             code_context += file_block
         system_prompt = (
-            "You are an expert Python refactoring agent. Your task is to clean up the provided codebase, "
-            "improve its quality (tests, linting, complexity), and fix compliance issues.\n"
-            "You must return your edited files using the following exact XML format:\n"
+            "You are an expert Python refactoring agent focused on ENERGY EFFICIENCY.\n"
+            "Your goal: minimise CPU cycles and peak memory while preserving program logic.\n"
+            "Specifically prefer:\n"
+            "  • List/dict/set comprehensions over append-loops\n"
+            "  • Vectorised / built-in operations (sum, map) over manual accumulation\n"
+            "  • Hoisting loop-invariant work outside the loop\n"
+            "  • Eliminating dead code and redundant computation\n"
+            "  • Flattening unnecessarily nested loops\n"
+            "Do NOT alter test files or break any existing assertions.\n"
+            "Return edited files using EXACTLY this XML format:\n"
             "<file name=\"filename.py\">\n... complete new code ...\n</file>\n"
-            "Do not omit any code inside the file block. Provide the full updated file."
+            "Provide the full updated file content (do not omit any code)."
         )
-        user_prompt = f"Here is the codebase to refactor:\n{code_context}\n\nPlease refactor and return the updated files."
+        user_prompt = (
+            f"Refactor the following codebase for energy efficiency. "
+            f"Preserve all behaviour; just make it cheaper to run.\n{code_context}"
+        )
         prompt_messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
         dataset_dict["prompt"].append(prompt_messages)
         dataset_dict["files"].append(json.dumps(ep["files"]))

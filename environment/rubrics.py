@@ -183,6 +183,8 @@ class SyntaxGateRubric(_BaseRubric):
     doesn't compile gets credit.
     """
     def forward(self, action: CodeAction, observation: CodeObservation) -> float:
+        if not action.updated_files:
+            return 0.0
         for content in action.updated_files.values():
             try:
                 ast.parse(content)

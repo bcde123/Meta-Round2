@@ -10,7 +10,7 @@ Example
 
     from client import GreenCodeEnv
 
-    env = GreenCodeEnv("https://shreeyanshi03-green-code-optimizer.hf.space")
+    env = GreenCodeEnv("https://s123hree-constrained-refactor-gauntlet-a100.hf.space")
     obs = env.reset(curriculum_level=2)
     print(obs.episode_id, len(obs.files))
 
