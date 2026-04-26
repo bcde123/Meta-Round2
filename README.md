@@ -11,9 +11,9 @@ pinned: true
 
 > **An RL agent that refactors Python code for energy efficiency, not readability — and tells you exactly how much CO₂ it saves.**
 
-[![HF Space](https://img.shields.io/badge/🤗_Space-Live-blue)](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100)
+[![HF Space](https://img.shields.io/badge/🤗_Space-Live-blue)](https://huggingface.co/spaces/s123hree/green-code-optimizer-a100)
 [![Repository](https://img.shields.io/badge/Repository-GitHub-black)](https://github.com/bcde123/Meta-Round2)
-[![Blog Post](https://img.shields.io/badge/Blog_Post-HF_Repo-green)](https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100/blob/main/blog_post.md)
+[![Blog Post](https://img.shields.io/badge/Blog_Post-GitHub-green)](https://github.com/bcde123/Meta-Round2/blob/main/blog_post.md)
 
 ---
 
@@ -162,7 +162,7 @@ python training/compare_baseline.py --num-episodes 20
 # → assets/baseline_vs_trained.png + .json
 ```
 
-![Baseline vs Trained](assets/baseline_vs_trained.png)
+![Baseline vs Trained](https://huggingface.co/spaces/s123hree/green-code-optimizer-a100/raw/main/assets/baseline_vs_trained.png)
 
 ### Training curves
 
@@ -185,9 +185,9 @@ python training/compare_baseline.py --num-episodes 20
 
 | Resource | Link |
 |----------|------|
-| 🤗 **HF Space** | https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100 |
+| 🤗 **HF Space** | https://huggingface.co/spaces/s123hree/green-code-optimizer-a100 |
 | 🧑‍💻 **Repository** | https://github.com/bcde123/Meta-Round2 |
-| 📝 **Blog Post** | https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100/blob/main/blog_post.md |
+| 📝 **Blog Post** | https://github.com/bcde123/Meta-Round2/blob/main/blog_post.md |
 
 ---
 
@@ -208,7 +208,7 @@ This env follows the [OpenEnv](https://github.com/meta-pytorch/openenv) spec (RF
 ```python
 # Three-line judge-friendly usage:
 from client import GreenCodeEnv
-env = GreenCodeEnv("https://s123hree-constrained-refactor-gauntlet-a100.hf.space")
+env = GreenCodeEnv("https://s123hree-green-code-optimizer-a100.hf.space")
 obs = env.reset(curriculum_level=2)        # gym-style reset
 state = env.state()                         # gym-style state
 print(env.rubric_tree())                    # introspect the reward
@@ -237,8 +237,8 @@ print(env.rubric_tree())                    # introspect the reward
 
 ### Run the env locally
 ```bash
-git clone https://huggingface.co/spaces/s123hree/constrained-refactor-gauntlet-a100
-cd constrained-refactor-gauntlet-a100
+git clone https://huggingface.co/spaces/s123hree/green-code-optimizer-a100
+cd green-code-optimizer-a100
 pip install -r requirements.txt
 uvicorn server:app --host 0.0.0.0 --port 7860
 # Visit http://localhost:7860/demo
@@ -254,7 +254,7 @@ python training/compare_baseline.py --num-episodes 20
 
 ### Smoke-test the deployed Space
 ```bash
-SPACE_URL=https://s123hree-constrained-refactor-gauntlet-a100.hf.space \
+SPACE_URL=https://s123hree-green-code-optimizer-a100.hf.space \
   python test_deployment.py
 ```
 
