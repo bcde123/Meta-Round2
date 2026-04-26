@@ -16,7 +16,7 @@ import httpx
 
 SPACE_URL = os.getenv(
     "SPACE_URL",
-    "https://shreeyanshi03-constrained-refactor-gauntlet.hf.space"
+    "https://s123hree-constrained-refactor-gauntlet-a100.hf.space"
 )
 
 client = httpx.Client(base_url=SPACE_URL, timeout=120.0)

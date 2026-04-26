@@ -74,7 +74,7 @@ print("=" * 60)
 
 from training.train_grpo import (
     reward_function, parse_completions, extract_completion_text,
-    compute_code_quality_fast
+    MODEL_NAME, LORA_RANK, MAX_SEQ_LENGTH,
 )
 from environment.track_b import ComplianceChecker
 
@@ -134,9 +134,7 @@ print("=" * 60)
 from unsloth import FastLanguageModel, PatchFastRL
 PatchFastRL("GRPO", FastLanguageModel)
 
-MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
-LORA_RANK = 32
-MAX_SEQ_LENGTH = 4096
+# MODEL_NAME, LORA_RANK, MAX_SEQ_LENGTH imported from train_grpo.py — stays in sync
 
 # Auto-detect GPU capabilities (vLLM disabled due to v0.19.1 BitsAndBytes bug)
 cc = torch.cuda.get_device_capability(0)

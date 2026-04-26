@@ -101,25 +101,27 @@ class EpisodeGenerator:
                 pass
 
     def _bloat_with_dead_code(self, files: Dict[str, str]):
-        dead_code = "\n".join([
-            "    # This is dead code",
-            "    _tmp_x = 42",
-            "    for _i in range(10):",
-            "        _tmp_x += _i"
-        ])
-        for filename in list(files.keys()):
-            if random.random() < 0.5:
-                lines = files[filename].split("\n")
-                new_lines = []
-                for line in lines:
-                    new_lines.append(line)
-                    if line.strip().startswith("def ") and random.random() < 0.3:
-                        new_lines.extend(dead_code.split("\n"))
-                while len(new_lines) < 310:
-                    idx = random.randint(0, max(1, len(new_lines)-10))
-                    block = new_lines[idx:idx+10]
-                    new_lines.extend(block)
-                files[filename] = "\n".join(new_lines)
+        """AST-safe injection of dead code at the start of function bodies."""
+        class DeadCodeInjector(ast.NodeTransformer):
+            def visit_FunctionDef(self, node):
+                self.generic_visit(node)
+                if random.random() < 0.4:
+                    dead = ast.parse(
+                        "_tmp_x = 42\n"
+                        "for _i in range(10):\n"
+                        "    _tmp_x += _i\n"
+                    ).body
+                    node.body = dead + node.body
+                return node
+
+        for filename, content in files.items():
+            try:
+                tree = ast.parse(content)
+                tree = DeadCodeInjector().visit(tree)
+                ast.fix_missing_locations(tree)
+                files[filename] = astor.to_source(tree)
+            except SyntaxError:
+                pass
 
     def _hardcode_secrets(self, files: Dict[str, str]):
         for filename, content in files.items():
@@ -142,6 +144,73 @@ class EpisodeGenerator:
                     if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
                         if ast.get_docstring(node):
                             node.body.pop(0)
+                files[filename] = astor.to_source(tree)
+            except SyntaxError:
+                pass
+
+    # ── Energy-degrading corruptions (Green-Code pitch) ──────────────────────
+    def _explode_comprehension(self, files: Dict[str, str]):
+        """Convert list comprehensions to explicit append-loops (slower)."""
+        class ComprehensionExploder(ast.NodeTransformer):
+            def visit_Assign(self, node):
+                if (len(node.targets) == 1
+                        and isinstance(node.targets[0], ast.Name)
+                        and isinstance(node.value, ast.ListComp)
+                        and len(node.value.generators) == 1):
+                    target_name = node.targets[0].id
+                    comp = node.value
+                    gen = comp.generators[0]
+                    if not gen.ifs and isinstance(gen.target, ast.Name):
+                        init = ast.Assign(
+                            targets=[ast.Name(id=target_name, ctx=ast.Store())],
+                            value=ast.List(elts=[], ctx=ast.Load()),
+                        )
+                        append_call = ast.Expr(
+                            value=ast.Call(
+                                func=ast.Attribute(
+                                    value=ast.Name(id=target_name, ctx=ast.Load()),
+                                    attr="append", ctx=ast.Load(),
+                                ),
+                                args=[comp.elt], keywords=[],
+                            )
+                        )
+                        loop = ast.For(
+                            target=gen.target, iter=gen.iter,
+                            body=[append_call], orelse=[],
+                        )
+                        return [init, loop]
+                return node
+
+        for filename, content in files.items():
+            try:
+                tree = ast.parse(content)
+                tree = ComprehensionExploder().visit(tree)
+                ast.fix_missing_locations(tree)
+                files[filename] = astor.to_source(tree)
+            except SyntaxError:
+                pass
+
+    def _inline_invariant_in_loop(self, files: Dict[str, str]):
+        """Inject a redundant inner loop at the start of function bodies to
+        inflate peak memory + CPU time without changing semantics — exactly
+        the pattern the graphlet analyzer flags as `LoopWithCall`/`NestedLoop`."""
+        class EnergyWasteInjector(ast.NodeTransformer):
+            def visit_FunctionDef(self, node):
+                self.generic_visit(node)
+                if random.random() < 0.4:
+                    waste = ast.parse(
+                        "_energy_waste = []\n"
+                        "for _ in range(50):\n"
+                        "    _energy_waste.append(list(range(100)))\n"
+                    ).body
+                    node.body = waste + node.body
+                return node
+
+        for filename, content in files.items():
+            try:
+                tree = ast.parse(content)
+                tree = EnergyWasteInjector().visit(tree)
+                ast.fix_missing_locations(tree)
                 files[filename] = astor.to_source(tree)
             except SyntaxError:
                 pass
@@ -170,30 +239,59 @@ class EpisodeGenerator:
 
     def generate(self) -> dict:
         files = self._load_base_files()
-        
-        corruptions = [
+
+        # Energy-degrading corruptions are the agent's primary target.
+        energy_corruptions = [
+            self._explode_comprehension,
+            self._inline_invariant_in_loop,
+            self._bloat_with_dead_code,
+        ]
+        readability_corruptions = [
             self._inject_circular_imports,
             self._rename_to_cryptic,
             self._remove_type_hints,
-            self._bloat_with_dead_code,
             self._hardcode_secrets,
             self._break_import_paths,
             self._remove_docstrings,
-            self._add_god_function
+            self._add_god_function,
         ]
-        
-        num_corruptions = random.randint(4, 8)
-        chosen_corruptions = random.sample(corruptions, num_corruptions)
-        
-        for corr in chosen_corruptions:
+
+        # ── Curriculum-driven corruption intensity ──────────────────────────
+        # Level 1: 1 energy + 1 readability corruption (gentle warmup).
+        # Level 2: 2 energy + 2 readability.
+        # Level 3: every energy corruption + 3 readability.
+        # Level 4: every energy corruption (applied twice each) + 4 readability.
+        level = self.curriculum.level
+        if level <= 1:
+            num_energy, num_readability, energy_passes = 1, 1, 1
+        elif level == 2:
+            num_energy, num_readability, energy_passes = 2, 2, 1
+        elif level == 3:
+            num_energy, num_readability, energy_passes = 3, 3, 1
+        else:
+            num_energy, num_readability, energy_passes = 3, 4, 2
+
+        chosen_energy = random.sample(energy_corruptions,
+                                      min(num_energy, len(energy_corruptions)))
+        for _ in range(energy_passes):
+            for corr in chosen_energy:
+                corr(files)
+
+        chosen_readability = random.sample(readability_corruptions,
+                                           min(num_readability,
+                                               len(readability_corruptions)))
+        for corr in chosen_readability:
             corr(files)
-            
-        num_rules = min(150, 20 + (self.curriculum.level - 1) * 40)
+
+        # Active rule budget also escalates with curriculum level
+        num_rules = min(150, 20 + (level - 1) * 40)
         rules_active = list(range(1, num_rules + 1))
-        
+
         return {
             "files": files,
             "rules_active": rules_active,
-            "curriculum_level": self.curriculum.level,
-            "episode_id": str(uuid.uuid4())
+            "curriculum_level": level,
+            "energy_corruptions_applied": [c.__name__ for c in chosen_energy],
+            "energy_passes": energy_passes,
+            "episode_id": str(uuid.uuid4()),
         }
