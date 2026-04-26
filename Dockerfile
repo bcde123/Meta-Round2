@@ -1,6 +1,8 @@
-# ── Stage 1: Environment Server ──────────────────────────────────────────────
-# Lightweight image for the OpenEnv-compliant environment + inference endpoint.
-# The trained LoRA adapter is downloaded from HuggingFace Hub at startup.
+# ── Green-Code Optimizer — Environment Image ────────────────────────────────
+# OpenEnv-compatible RL env that trains a code agent to refactor Python for
+# energy efficiency (CPU + memory). Includes graphlet analyzer, runtime
+# profiler, and CO2-savings dashboard. The trained LoRA adapter is downloaded
+# from HuggingFace Hub at startup.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime AS base
 

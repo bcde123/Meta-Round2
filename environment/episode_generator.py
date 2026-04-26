@@ -101,25 +101,27 @@ class EpisodeGenerator:
                 pass
 
     def _bloat_with_dead_code(self, files: Dict[str, str]):
-        dead_code = "\n".join([
-            "    # This is dead code",
-            "    _tmp_x = 42",
-            "    for _i in range(10):",
-            "        _tmp_x += _i"
-        ])
-        for filename in list(files.keys()):
-            if random.random() < 0.5:
-                lines = files[filename].split("\n")
-                new_lines = []
-                for line in lines:
-                    new_lines.append(line)
-                    if line.strip().startswith("def ") and random.random() < 0.3:
-                        new_lines.extend(dead_code.split("\n"))
-                while len(new_lines) < 310:
-                    idx = random.randint(0, max(1, len(new_lines)-10))
-                    block = new_lines[idx:idx+10]
-                    new_lines.extend(block)
-                files[filename] = "\n".join(new_lines)
+        """AST-safe injection of dead code at the start of function bodies."""
+        class DeadCodeInjector(ast.NodeTransformer):
+            def visit_FunctionDef(self, node):
+                self.generic_visit(node)
+                if random.random() < 0.4:
+                    dead = ast.parse(
+                        "_tmp_x = 42\n"
+                        "for _i in range(10):\n"
+                        "    _tmp_x += _i\n"
+                    ).body
+                    node.body = dead + node.body
+                return node
+
+        for filename, content in files.items():
+            try:
+                tree = ast.parse(content)
+                tree = DeadCodeInjector().visit(tree)
+                ast.fix_missing_locations(tree)
+                files[filename] = astor.to_source(tree)
+            except SyntaxError:
+                pass
 
     def _hardcode_secrets(self, files: Dict[str, str]):
         for filename, content in files.items():
@@ -142,6 +144,73 @@ class EpisodeGenerator:
                     if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
                         if ast.get_docstring(node):
                             node.body.pop(0)
+                files[filename] = astor.to_source(tree)
+            except SyntaxError:
+                pass
+
+    # ── Energy-degrading corruptions (Green-Code pitch) ──────────────────────
+    def _explode_comprehension(self, files: Dict[str, str]):
+        """Convert list comprehensions to explicit append-loops (slower)."""
+        class ComprehensionExploder(ast.NodeTransformer):
+            def visit_Assign(self, node):
+                if (len(node.targets) == 1
+                        and isinstance(node.targets[0], ast.Name)
+                        and isinstance(node.value, ast.ListComp)
+                        and len(node.value.generators) == 1):
+                    target_name = node.targets[0].id
+                    comp = node.value
+                    gen = comp.generators[0]
+                    if not gen.ifs and isinstance(gen.target, ast.Name):
+                        init = ast.Assign(
+                            targets=[ast.Name(id=target_name, ctx=ast.Store())],
+                            value=ast.List(elts=[], ctx=ast.Load()),
+                        )
+                        append_call = ast.Expr(
+                            value=ast.Call(
+                                func=ast.Attribute(
+                                    value=ast.Name(id=target_name, ctx=ast.Load()),
+                                    attr="append", ctx=ast.Load(),
+                                ),
+                                args=[comp.elt], keywords=[],
+                            )
+                        )
+                        loop = ast.For(
+                            target=gen.target, iter=gen.iter,
+                            body=[append_call], orelse=[],
+                        )
+                        return [init, loop]
+                return node
+
+        for filename, content in files.items():
+            try:
+                tree = ast.parse(content)
+                tree = ComprehensionExploder().visit(tree)
+                ast.fix_missing_locations(tree)
+                files[filename] = astor.to_source(tree)
+            except SyntaxError:
+                pass
+
+    def _inline_invariant_in_loop(self, files: Dict[str, str]):
+        """Inject a redundant inner loop at the start of function bodies to
+        inflate peak memory + CPU time without changing semantics — exactly
+        the pattern the graphlet analyzer flags as `LoopWithCall`/`NestedLoop`."""
+        class EnergyWasteInjector(ast.NodeTransformer):
+            def visit_FunctionDef(self, node):
+                self.generic_visit(node)
+                if random.random() < 0.4:
+                    waste = ast.parse(
+                        "_energy_waste = []\n"
+                        "for _ in range(50):\n"
+                        "    _energy_waste.append(list(range(100)))\n"
+                    ).body
+                    node.body = waste + node.body
+                return node
+
+        for filename, content in files.items():
+            try:
+                tree = ast.parse(content)
+                tree = EnergyWasteInjector().visit(tree)
+                ast.fix_missing_locations(tree)
                 files[filename] = astor.to_source(tree)
             except SyntaxError:
                 pass
@@ -179,11 +248,27 @@ class EpisodeGenerator:
             self._hardcode_secrets,
             self._break_import_paths,
             self._remove_docstrings,
-            self._add_god_function
+            self._add_god_function,
+            # Energy-degrading corruptions — agent's primary target
+            self._explode_comprehension,
+            self._inline_invariant_in_loop,
         ]
-        
-        num_corruptions = random.randint(4, 8)
-        chosen_corruptions = random.sample(corruptions, num_corruptions)
+
+        # Always inject at least one energy-degrading corruption so every
+        # episode has a green-code optimisation opportunity.
+        energy_corruptions = [
+            self._explode_comprehension,
+            self._inline_invariant_in_loop,
+            self._bloat_with_dead_code,
+        ]
+        guaranteed = random.choice(energy_corruptions)
+        guaranteed(files)
+
+        num_corruptions = random.randint(3, 7)
+        chosen_corruptions = random.sample(
+            [c for c in corruptions if c is not guaranteed],
+            num_corruptions,
+        )
         
         for corr in chosen_corruptions:
             corr(files)

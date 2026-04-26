@@ -1,5 +1,5 @@
 """
-inference.py — Inference endpoint for the Constrained Refactor Gauntlet agent.
+inference.py — Inference endpoint for the Green-Code Optimizer agent.
 
 Supports two modes:
   1. Local: loads adapter from grpo_output/final_adapter (with Unsloth)
