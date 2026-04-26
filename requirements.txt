@@ -1,6 +1,6 @@
 fastapi>=0.110.0
 uvicorn>=0.29.0
-openenv>=0.1.0
+openenv-core>=0.2.3
 openai>=1.23.0
 pytest>=8.0.0
 ruff>=0.4.0

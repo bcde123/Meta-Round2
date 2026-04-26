@@ -50,6 +50,18 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from environment.episode_generator import EpisodeGenerator
 from environment.track_b import ComplianceChecker
 from environment.track_c import GreenCodeEvaluator
+from environment.rubrics import (
+    build_green_rubric,
+    CodeAction,
+    CodeObservation,
+    OPENENV_AVAILABLE,
+)
+
+# Build the rubric once and reuse it across all reward computations.
+# When `openenv-core` is installed, GREEN_RUBRIC inherits from its `Rubric`
+# base class so OpenEnv training infrastructure can introspect named children.
+GREEN_RUBRIC = build_green_rubric()
+print(f"  Rubric ready (openenv-core integration: {OPENENV_AVAILABLE})")
 
 MODEL_NAME = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../environment/base_codebase"))
@@ -302,48 +314,42 @@ def reward_function(completions, prompts, files, rules_active, **kwargs):
                 rewards.append(HACK_PENALTY)
                 continue
 
-            # ── BINARY TEST GATE (S_test) ────────────────────────────────────
-            s_test = _binary_test_score(updated_files)
-
-            # ── GRANULAR COMPLIANCE (1/N * Σ C_i) ────────────────────────────
-            compliance_score = _compute_granular_compliance(
-                orig_files, updated_files, active_rules
-            )
-
             # ── EFFICIENCY PENALTY (P_efficiency) ────────────────────────────
+            # Held outside the rubric: it's a training-time minimal-edits
+            # nudge, not a property of the environment's reward function.
             num_files_edited = sum(
                 1 for f in edits if f in orig_files
             )
             p_efficiency = EFFICIENCY_PENALTY_PER_EDIT * num_files_edited
 
-            # ── Green-code efficiency (Track C — supplemental signal) ────────
-            evaluator_c = GreenCodeEvaluator()
-            green_score = evaluator_c.evaluate(orig_files, updated_files)
-            score_c = green_score.total
-            print(
-                f"    [Track C] completion {idx}: green={score_c:.3f} "
-                f"(graphlet={green_score.graphlet_score:.3f}, "
-                f"cpu={green_score.cpu_improvement:.3f}, "
-                f"mem={green_score.memory_improvement:.3f})"
+            # ── COMPOSABLE RUBRIC SCORE ──────────────────────────────────────
+            # The Rubric does:
+            #   syntax_gate ∧ hack_gate × (0.70·green + 0.30·compliance)
+            # where green = 0.40·graphlet + 0.35·cpu + 0.25·memory.
+            # All component scores are exposed via `named_rubrics()`.
+            rubric_score = GREEN_RUBRIC(
+                action=CodeAction(updated_files=updated_files),
+                observation=CodeObservation(
+                    orig_files=orig_files,
+                    active_rules=active_rules,
+                    standards_path=STANDARDS_PATH,
+                ),
             )
 
-            # ── GREEN-FIRST REWARD ────────────────────────────────────────────
-            # Pitch: minimize CPU cycles + memory footprint without changing logic.
-            # Test pass is a hard gate (S_test ∈ {0,1}); green score is the
-            # dominant signal (70%); compliance is a secondary signal (30%).
-            #
-            # R = S_test × (0.70·green + 0.30·compliance) - P_efficiency + bonus
-            blended_quality = 0.70 * score_c + 0.30 * compliance_score
-            reward = (
-                (TEST_WEIGHT * s_test) * blended_quality
-                - p_efficiency
-                + format_bonus
-            )
+            # Pull individual component scores for logging
+            children = dict(GREEN_RUBRIC.named_rubrics())
+            s_test = children["syntax_gate"].last_score or 0.0
+            green = children["green"].last_score or 0.0
+            graphlet = children["green.graphlet"].last_score or 0.0
+            cpu = children["green.cpu"].last_score or 0.0
+            mem = children["green.memory"].last_score or 0.0
+            compliance_score = children["compliance"].last_score or 0.0
+
+            reward = rubric_score - p_efficiency + format_bonus
 
             print(
-                f"    [Reward] #{idx}: S_test={s_test:.0f} | "
-                f"green={score_c:.3f} (graphlet={green_score.graphlet_score:.2f}, "
-                f"cpu={green_score.cpu_improvement:.2f}, mem={green_score.memory_improvement:.2f}) | "
+                f"    [Reward] #{idx}: gate={s_test:.0f} | "
+                f"green={green:.3f} (g={graphlet:.2f}, cpu={cpu:.2f}, mem={mem:.2f}) | "
                 f"compliance={compliance_score:.3f} | "
                 f"P_eff={p_efficiency:.3f} | R={reward:.4f}"
             )
@@ -480,22 +486,54 @@ def main():
         with open(os.path.join(assets_dir, "log_history.json"), "w") as f:
             json.dump(history, f, indent=2, default=str)
 
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-        if losses:
-            axes[0].plot(losses, color="#d62728")
-            axes[0].set_title("Training Loss")
-            axes[0].set_xlabel("logging step")
-            axes[0].set_ylabel("loss")
-            axes[0].grid(True, alpha=0.3)
-        if rewards:
-            axes[1].plot(rewards, color="#2ca02c")
-            axes[1].set_title("Episode Reward")
-            axes[1].set_xlabel("logging step")
-            axes[1].set_ylabel("reward")
-            axes[1].grid(True, alpha=0.3)
+        # X-axis = global trainer step (not row index) when available
+        loss_pts = [(h["step"], h["loss"]) for h in history if "loss" in h and "step" in h]
+        rew_pts = [(h["step"], h["reward"]) for h in history if "reward" in h and "step" in h]
+
+        fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+        fig.suptitle(
+            f"Green-Code Optimizer — GRPO training run "
+            f"(Qwen-2.5-Coder-1.5B, LoRA r={LORA_RANK}, "
+            f"reward = 0.70·green + 0.30·compliance)",
+            fontsize=11, fontweight="bold", y=1.02,
+        )
+        if loss_pts:
+            xs, ys = zip(*loss_pts)
+            axes[0].plot(xs, ys, color="#dc2626", linewidth=1.8, marker="o", markersize=3)
+            axes[0].set_title("Policy loss (lower is better)", fontsize=11)
+            axes[0].set_xlabel("Training step", fontsize=10)
+            axes[0].set_ylabel("Loss (cross-entropy, nats)", fontsize=10)
+            axes[0].grid(True, alpha=0.3, linestyle="--")
+            axes[0].set_axisbelow(True)
+        if rew_pts:
+            xs, ys = zip(*rew_pts)
+            axes[1].plot(xs, ys, color="#059669", linewidth=1.8, marker="o", markersize=3,
+                         label="Mean reward / batch")
+            # Reference lines: no-op and oracle baselines from compare_baseline.py
+            try:
+                bl_path = os.path.join(assets_dir, "baseline_vs_trained.json")
+                if os.path.exists(bl_path):
+                    with open(bl_path) as f:
+                        bl = json.load(f)["summary"]
+                    if "noop" in bl:
+                        axes[1].axhline(bl["noop"]["mean_reward"], color="#94a3b8",
+                                        linestyle=":", linewidth=1.5,
+                                        label=f"No-op baseline ({bl['noop']['mean_reward']:.2f})")
+                    if "oracle" in bl:
+                        axes[1].axhline(bl["oracle"]["mean_reward"], color="#3b82f6",
+                                        linestyle="--", linewidth=1.5,
+                                        label=f"Oracle ceiling ({bl['oracle']['mean_reward']:.2f})")
+            except Exception:
+                pass
+            axes[1].set_title("Episode reward (higher is better)", fontsize=11)
+            axes[1].set_xlabel("Training step", fontsize=10)
+            axes[1].set_ylabel("Reward (rubric, range −1.0 to 1.0)", fontsize=10)
+            axes[1].grid(True, alpha=0.3, linestyle="--")
+            axes[1].set_axisbelow(True)
+            axes[1].legend(loc="lower right", fontsize=8, framealpha=0.95)
         plt.tight_layout()
         plot_path = os.path.join(assets_dir, "training_curves.png")
-        plt.savefig(plot_path, dpi=150)
+        plt.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"📊 Saved training plots to {plot_path}")
     except Exception as e:
