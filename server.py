@@ -5,9 +5,12 @@ import getpass
 try:
     getpass.getuser()
 except KeyError:
-    def dummy_getuser():
-        return os.environ.get("USER", "huggingface")
-    getpass.getuser = dummy_getuser
+    import pwd
+    def dummy_getpwuid(uid):
+        return ('huggingface', 'x', uid, 1000, 'HuggingFace user', '/home/huggingface', '/bin/sh')
+    pwd.getpwuid = dummy_getpwuid
+except ImportError:
+    pass
 
 os.environ["TORCHINDUCTOR_DISABLE"] = "1"
 os.environ["LOGNAME"] = "huggingface"
